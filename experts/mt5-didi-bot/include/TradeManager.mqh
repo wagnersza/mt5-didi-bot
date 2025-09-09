@@ -67,55 +67,29 @@ void CTradeManager::CheckForEntry(CDmi &dmi,CDidiIndex &didi,CBollingerBands &bb
       if(buy_signal)
         {
          Print("CheckForEntry: Buy signal confirmed. Attempting to open BUY position.");
-         MqlTradeRequest request={0};
-         MqlTradeResult result={0};
-         request.action=TRADE_ACTION_DEAL;
-         request.symbol=_Symbol;
-         request.volume=0.1;
-         request.type=ORDER_TYPE_BUY;
-         request.price=SymbolInfoDouble(_Symbol,SYMBOL_ASK);
-         request.sl=0;
-         request.tp=0;
-         request.magic=m_magic_number;
-         request.comment="Buy Signal";
-         if(OrderSend(request,result))
+         double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+         if(m_trade.Buy(0.1, _Symbol, ask, 0, 0, "Buy Signal"))
            {
-            PrintFormat("CheckForEntry: BUY order sent. Retcode: %d, Deal: %I64u", result.retcode, result.deal);
-            if(result.retcode==TRADE_RETCODE_PLACED_PARTIAL)
-              {
-               PrintFormat("CheckForEntry: Partial fill detected. Filled %.2f lots of %.2f requested.", result.volume, request.volume);
-              }
+            PrintFormat("CheckForEntry: BUY order sent successfully. Order: %I64u", m_trade.ResultOrder());
            }
          else
            {
-            PrintFormat("CheckForEntry: Failed to send BUY order. Error: %d", GetLastError());
+            PrintFormat("CheckForEntry: Failed to send BUY order. Error: %d, RetCode: %d", 
+                       GetLastError(), m_trade.ResultRetcode());
            }
         }
       else if(sell_signal)
         {
          Print("CheckForEntry: Sell signal confirmed. Attempting to open SELL position.");
-         MqlTradeRequest request={0};
-         MqlTradeResult result={0};
-         request.action=TRADE_ACTION_DEAL;
-         request.symbol=_Symbol;
-         request.volume=0.1;
-         request.type=ORDER_TYPE_SELL;
-         request.price=SymbolInfoDouble(_Symbol,SYMBOL_BID);
-         request.sl=0;
-         request.tp=0;
-         request.magic=m_magic_number;
-         request.comment="Sell Signal";
-         if(OrderSend(request,result))
+         double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+         if(m_trade.Sell(0.1, _Symbol, bid, 0, 0, "Sell Signal"))
            {
-            PrintFormat("CheckForEntry: SELL order sent. Retcode: %d, Deal: %I64u", result.retcode, result.deal);
-            if(result.retcode==TRADE_RETCODE_PLACED_PARTIAL)
-              {
-               PrintFormat("CheckForEntry: Partial fill detected. Filled %.2f lots of %.2f requested.", result.volume, request.volume);
-              }
+            PrintFormat("CheckForEntry: SELL order sent successfully. Order: %I64u", m_trade.ResultOrder());
            }
          else
            {
-            PrintFormat("CheckForEntry: Failed to send SELL order. Error: %d", GetLastError());
+            PrintFormat("CheckForEntry: Failed to send SELL order. Error: %d, RetCode: %d", 
+                       GetLastError(), m_trade.ResultRetcode());
            }
         }
       else
@@ -145,37 +119,38 @@ void CTradeManager::CheckForExit(CDmi &dmi,CStochastic &stoch,CTrix &trix,CBolli
 
    for(int i=PositionsTotal()-1; i>=0; i--)
      {
-      if(PositionSelect(i))
+      ulong ticket = PositionGetTicket(i);
+      if(PositionSelectByTicket(ticket))
         {
          if(PositionGetInteger(POSITION_MAGIC)==m_magic_number)
            {
             if(PositionGetInteger(POSITION_TYPE)==POSITION_TYPE_BUY && close_buy_signal)
               {
-               PrintFormat("CheckForExit: Buy exit signal confirmed for position #%I64u. Attempting to close.", PositionGetTicket(i));
-               if(m_trade.PositionClose(PositionGetTicket(i)))
+               PrintFormat("CheckForExit: Buy exit signal confirmed for position #%I64u. Attempting to close.", ticket);
+               if(m_trade.PositionClose(ticket))
                  {
-                  PrintFormat("CheckForExit: Position #%I64u closed successfully.", PositionGetTicket(i));
+                  PrintFormat("CheckForExit: Position #%I64u closed successfully.", ticket);
                  }
                else
                  {
-                  PrintFormat("CheckForExit: Failed to close position #%I64u. Error: %d", PositionGetTicket(i), GetLastError());
+                  PrintFormat("CheckForExit: Failed to close position #%I64u. Error: %d", ticket, GetLastError());
                  }
               }
             else if(PositionGetInteger(POSITION_TYPE)==POSITION_TYPE_SELL && close_sell_signal)
               {
-               PrintFormat("CheckForExit: Sell exit signal confirmed for position #%I64u. Attempting to close.", PositionGetTicket(i));
-               if(m_trade.PositionClose(PositionGetTicket(i)))
+               PrintFormat("CheckForExit: Sell exit signal confirmed for position #%I64u. Attempting to close.", ticket);
+               if(m_trade.PositionClose(ticket))
                  {
-                  PrintFormat("CheckForExit: Position #%I64u closed successfully.", PositionGetTicket(i));
+                  PrintFormat("CheckForExit: Position #%I64u closed successfully.", ticket);
                  }
                else
                  {
-                  PrintFormat("CheckForExit: Failed to close position #%I64u. Error: %d", PositionGetTicket(i), GetLastError());
+                  PrintFormat("CheckForExit: Failed to close position #%I64u. Error: %d", ticket, GetLastError());
                  }
               }
             else
               {
-               PrintFormat("CheckForExit: No exit signal for position #%I64u.", PositionGetTicket(i));
+               PrintFormat("CheckForExit: No exit signal for position #%I64u.", ticket);
               }
            }
         }
@@ -194,7 +169,8 @@ void CTradeManager::ReadChartObjects()
 
       if(type==OBJ_TREND || type==OBJ_HLINE)
         {
-         PrintFormat("ReadChartObjects: Found line: %s, Type: %s, Price: %.5f", name, EnumToString(type), ObjectGetDouble(0,name,OBJPROP_PRICE,0));
+         string type_str = (type==OBJ_TREND) ? "OBJ_TREND" : "OBJ_HLINE";
+         PrintFormat("ReadChartObjects: Found line: %s, Type: %s, Price: %.5f", name, type_str, ObjectGetDouble(0,name,OBJPROP_PRICE,0));
         }
      }
    Print("ReadChartObjects: Finished reading chart objects.");

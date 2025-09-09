@@ -49,13 +49,13 @@ bool CDmi::Init(string symbol, ENUM_TIMEFRAMES period, int adx_period)
    m_handle = iADX(symbol, period, adx_period);
    if(m_handle == INVALID_HANDLE)
      {
-      printf("Error creating ADX indicator: %d", GetLastError());
+      PrintFormat("Error creating ADX indicator: %d", GetLastError());
       return(false);
      }
    ArraySetAsSeries(m_adx_buffer, true);
    ArraySetAsSeries(m_plus_di_buffer, true);
    ArraySetAsSeries(m_minus_di_buffer, true);
-   PrintFormat("DMI initialized for %s, Period %s, ADX Period %d", symbol, EnumToString(period), adx_period);
+   PrintFormat("DMI initialized for %s, Period %d, ADX Period %d", symbol, (int)period, adx_period);
    return(true);
 }
 //+------------------------------------------------------------------+
@@ -136,14 +136,14 @@ bool CDidiIndex::Init(string symbol, ENUM_TIMEFRAMES period, int short_period, i
 
    if(m_short_ma_handle == INVALID_HANDLE || m_medium_ma_handle == INVALID_HANDLE || m_long_ma_handle == INVALID_HANDLE)
    {
-      printf("Error creating Didi Index indicators: %d", GetLastError());
+      PrintFormat("Error creating Didi Index indicators: %d", GetLastError());
       return false;
    }
 
    ArraySetAsSeries(m_short_ma_buffer, true);
    ArraySetAsSeries(m_medium_ma_buffer, true);
    ArraySetAsSeries(m_long_ma_buffer, true);
-   PrintFormat("Didi Index initialized for %s, Period %s, Short %d, Medium %d, Long %d", symbol, EnumToString(period), short_period, medium_period, long_period);
+   PrintFormat("Didi Index initialized for %s, Period %d, Short %d, Medium %d, Long %d", symbol, (int)period, short_period, medium_period, long_period);
    return true;
 }
 //+------------------------------------------------------------------+
@@ -229,14 +229,14 @@ bool CBollingerBands::Init(string symbol, ENUM_TIMEFRAMES period, int bb_period,
    m_handle = iBands(symbol, period, bb_period, 0, bb_deviation, PRICE_CLOSE);
    if(m_handle == INVALID_HANDLE)
    {
-      printf("Error creating Bollinger Bands indicator: %d", GetLastError());
+      PrintFormat("Error creating Bollinger Bands indicator: %d", GetLastError());
       return false;
    }
 
    ArraySetAsSeries(m_upper_band_buffer, true);
    ArraySetAsSeries(m_middle_band_buffer, true);
    ArraySetAsSeries(m_lower_band_buffer, true);
-   PrintFormat("Bollinger Bands initialized for %s, Period %s, BB Period %d, Deviation %.2f", symbol, EnumToString(period), bb_period, bb_deviation);
+   PrintFormat("Bollinger Bands initialized for %s, Period %d, BB Period %d, Deviation %.2f", symbol, (int)period, bb_period, bb_deviation);
    return true;
 }
 //+------------------------------------------------------------------+
@@ -307,13 +307,13 @@ bool CStochastic::Init(string symbol, ENUM_TIMEFRAMES period, int k_period, int 
    m_handle = iStochastic(symbol, period, k_period, d_period, slowing, MODE_SMA, STO_LOWHIGH);
    if(m_handle == INVALID_HANDLE)
    {
-      printf("Error creating Stochastic indicator: %d", GetLastError());
+      PrintFormat("Error creating Stochastic indicator: %d", GetLastError());
       return false;
    }
 
    ArraySetAsSeries(m_main_buffer, true);
    ArraySetAsSeries(m_signal_buffer, true);
-   PrintFormat("Stochastic initialized for %s, Period %s, K Period %d, D Period %d, Slowing %d", symbol, EnumToString(period), k_period, d_period, slowing);
+   PrintFormat("Stochastic initialized for %s, Period %d, K Period %d, D Period %d, Slowing %d", symbol, (int)period, k_period, d_period, slowing);
    return true;
 }
 //+------------------------------------------------------------------+
@@ -341,8 +341,16 @@ double CStochastic::Signal(int shift)
 class CTrix
 {
 protected:
-   int m_handle;           // Indicator handle
-   double m_main_buffer[];// Buffer for the main line
+   int m_ema1_handle;          // First EMA handle
+   int m_ema2_handle;          // Second EMA handle  
+   int m_ema3_handle;          // Third EMA handle
+   double m_ema1_buffer[];     // First EMA buffer
+   double m_ema2_buffer[];     // Second EMA buffer
+   double m_ema3_buffer[];     // Third EMA buffer
+   double m_trix_buffer[];     // TRIX calculation buffer
+   int m_period;               // TRIX period
+   string m_symbol;            // Symbol
+   ENUM_TIMEFRAMES m_timeframe; // Timeframe
 
 public:
    CTrix();
@@ -350,11 +358,12 @@ public:
 
    bool Init(string symbol, ENUM_TIMEFRAMES period, int trix_period);
    double Main(int shift);
+   bool CalculateTrix(int shift);
 };
 //+------------------------------------------------------------------+
 //| Constructor                                                      |
 //+------------------------------------------------------------------+
-CTrix::CTrix() : m_handle(INVALID_HANDLE)
+CTrix::CTrix() : m_ema1_handle(INVALID_HANDLE), m_ema2_handle(INVALID_HANDLE), m_ema3_handle(INVALID_HANDLE), m_period(0)
 {
 }
 //+------------------------------------------------------------------+
@@ -362,23 +371,99 @@ CTrix::CTrix() : m_handle(INVALID_HANDLE)
 //+------------------------------------------------------------------+
 CTrix::~CTrix()
 {
-   if(m_handle != INVALID_HANDLE)
-      IndicatorRelease(m_handle);
+   if(m_ema1_handle != INVALID_HANDLE)
+      IndicatorRelease(m_ema1_handle);
+   if(m_ema2_handle != INVALID_HANDLE)
+      IndicatorRelease(m_ema2_handle);
+   if(m_ema3_handle != INVALID_HANDLE)
+      IndicatorRelease(m_ema3_handle);
 }
 //+------------------------------------------------------------------+
 //| Initialization method.                                           |
 //+------------------------------------------------------------------+
 bool CTrix::Init(string symbol, ENUM_TIMEFRAMES period, int trix_period)
 {
-   m_handle = iTrix(symbol, period, trix_period, PRICE_CLOSE);
-   if(m_handle == INVALID_HANDLE)
+   m_symbol = symbol;
+   m_timeframe = period;
+   m_period = trix_period;
+   
+   // Create three EMAs for TRIX calculation
+   m_ema1_handle = iMA(symbol, period, trix_period, 0, MODE_EMA, PRICE_CLOSE);
+   m_ema2_handle = iMA(symbol, period, trix_period, 0, MODE_EMA, PRICE_CLOSE);
+   m_ema3_handle = iMA(symbol, period, trix_period, 0, MODE_EMA, PRICE_CLOSE);
+   
+   if(m_ema1_handle == INVALID_HANDLE || m_ema2_handle == INVALID_HANDLE || m_ema3_handle == INVALID_HANDLE)
    {
-      printf("Error creating Trix indicator: %d", GetLastError());
+      PrintFormat("Error creating TRIX EMA indicators: %d", GetLastError());
       return false;
    }
 
-   ArraySetAsSeries(m_main_buffer, true);
-   PrintFormat("Trix initialized for %s, Period %s, Trix Period %d", symbol, EnumToString(period), trix_period);
+   ArraySetAsSeries(m_ema1_buffer, true);
+   ArraySetAsSeries(m_ema2_buffer, true);
+   ArraySetAsSeries(m_ema3_buffer, true);
+   ArraySetAsSeries(m_trix_buffer, true);
+   
+   PrintFormat("TRIX initialized for %s, Period %d, TRIX Period %d", symbol, (int)period, trix_period);
+   return true;
+}
+//+------------------------------------------------------------------+
+//| Calculate TRIX value manually                                   |
+//+------------------------------------------------------------------+
+bool CTrix::CalculateTrix(int shift)
+{
+   // Get close prices
+   double close[];
+   ArraySetAsSeries(close, true);
+   if(CopyClose(m_symbol, m_timeframe, shift, m_period + 10, close) < m_period + 10)
+      return false;
+   
+   // Calculate first EMA
+   double ema1[];
+   ArrayResize(ema1, m_period + 10);
+   ArraySetAsSeries(ema1, true);
+   
+   // Simple EMA calculation for first level
+   ema1[m_period + 9] = close[m_period + 9];
+   double alpha = 2.0 / (m_period + 1.0);
+   
+   for(int i = m_period + 8; i >= 0; i--)
+   {
+      ema1[i] = alpha * close[i] + (1 - alpha) * ema1[i + 1];
+   }
+   
+   // Calculate second EMA
+   double ema2[];
+   ArrayResize(ema2, m_period + 10);
+   ArraySetAsSeries(ema2, true);
+   
+   ema2[m_period + 9] = ema1[m_period + 9];
+   for(int i = m_period + 8; i >= 0; i--)
+   {
+      ema2[i] = alpha * ema1[i] + (1 - alpha) * ema2[i + 1];
+   }
+   
+   // Calculate third EMA
+   double ema3[];
+   ArrayResize(ema3, m_period + 10);
+   ArraySetAsSeries(ema3, true);
+   
+   ema3[m_period + 9] = ema2[m_period + 9];
+   for(int i = m_period + 8; i >= 0; i--)
+   {
+      ema3[i] = alpha * ema2[i] + (1 - alpha) * ema3[i + 1];
+   }
+   
+   // Calculate TRIX
+   ArrayResize(m_trix_buffer, 10);
+   if(ema3[shift + 1] != 0)
+   {
+      m_trix_buffer[shift] = 10000.0 * (ema3[shift] - ema3[shift + 1]) / ema3[shift + 1];
+   }
+   else
+   {
+      m_trix_buffer[shift] = 0;
+   }
+   
    return true;
 }
 //+------------------------------------------------------------------+
@@ -386,8 +471,8 @@ bool CTrix::Init(string symbol, ENUM_TIMEFRAMES period, int trix_period)
 //+------------------------------------------------------------------+
 double CTrix::Main(int shift)
 {
-   if(CopyBuffer(m_handle, 0, shift, 1, m_main_buffer) > 0)
-      return m_main_buffer[0];
+   if(CalculateTrix(shift))
+      return m_trix_buffer[shift];
    return 0;
 }
 
@@ -429,12 +514,12 @@ bool CIfr::Init(string symbol, ENUM_TIMEFRAMES period, int rsi_period)
    m_handle = iRSI(symbol, period, rsi_period, PRICE_CLOSE);
    if(m_handle == INVALID_HANDLE)
    {
-      printf("Error creating IFR (RSI) indicator: %d", GetLastError());
+      PrintFormat("Error creating IFR (RSI) indicator: %d", GetLastError());
       return false;
    }
 
    ArraySetAsSeries(m_main_buffer, true);
-   PrintFormat("IFR (RSI) initialized for %s, Period %s, RSI Period %d", symbol, EnumToString(period), rsi_period);
+   PrintFormat("IFR (RSI) initialized for %s, Period %d, RSI Period %d", symbol, (int)period, rsi_period);
    return true;
 }
 //+------------------------------------------------------------------+
