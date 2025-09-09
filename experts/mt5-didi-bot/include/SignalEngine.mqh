@@ -531,3 +531,123 @@ double CIfr::Main(int shift)
       return m_main_buffer[0];
    return 0;
 }
+
+//+------------------------------------------------------------------+
+//| Class for the ATR (Average True Range) indicator.               |
+//+------------------------------------------------------------------+
+class CAtr
+{
+protected:
+   int               m_handle;           // Indicator handle
+   double            m_atr_buffer[];     // Buffer for ATR values
+
+public:
+                     CAtr();
+                    ~CAtr();
+   bool              Init(string symbol, ENUM_TIMEFRAMES period, int atr_period);
+   double            Main(int shift);
+   bool              GetValues(double &atr_array[], int start_pos, int count);
+   double            GetCurrentATR();
+   bool              IsValidHandle() const;
+};
+
+//+------------------------------------------------------------------+
+//| Constructor                                                      |
+//+------------------------------------------------------------------+
+CAtr::CAtr() : m_handle(INVALID_HANDLE)
+{
+}
+
+//+------------------------------------------------------------------+
+//| Destructor                                                       |
+//+------------------------------------------------------------------+
+CAtr::~CAtr()
+{
+   if(m_handle != INVALID_HANDLE)
+      IndicatorRelease(m_handle);
+}
+
+//+------------------------------------------------------------------+
+//| Initialization method.                                           |
+//+------------------------------------------------------------------+
+bool CAtr::Init(string symbol, ENUM_TIMEFRAMES period, int atr_period)
+{
+   m_handle = iATR(symbol, period, atr_period);
+   if(m_handle == INVALID_HANDLE)
+   {
+      PrintFormat("OnInit: ATR initialization failed for %s, Period %d, ATR Period %d. Error: %d", 
+                  symbol, (int)period, atr_period, GetLastError());
+      return false;
+   }
+
+   ArraySetAsSeries(m_atr_buffer, true);
+   PrintFormat("OnInit: ATR initialized successfully for %s, Period %d, ATR Period %d", 
+               symbol, (int)period, atr_period);
+   return true;
+}
+
+//+------------------------------------------------------------------+
+//| Returns the ATR value for the specified bar.                    |
+//+------------------------------------------------------------------+
+double CAtr::Main(int shift)
+{
+   if(m_handle == INVALID_HANDLE)
+   {
+      Print("CAtr::Main: ATR handle is invalid");
+      return 0.0;
+   }
+   
+   if(CopyBuffer(m_handle, 0, shift, 1, m_atr_buffer) > 0)
+   {
+      if(m_atr_buffer[0] > 0)
+         return m_atr_buffer[0];
+      else
+      {
+         PrintFormat("CAtr::Main: Invalid ATR value %.5f at shift %d", m_atr_buffer[0], shift);
+         return 0.0;
+      }
+   }
+   
+   PrintFormat("CAtr::Main: Failed to copy ATR buffer at shift %d. Error: %d", shift, GetLastError());
+   return 0.0;
+}
+
+//+------------------------------------------------------------------+
+//| Get multiple ATR values at once                                 |
+//+------------------------------------------------------------------+
+bool CAtr::GetValues(double &atr_array[], int start_pos, int count)
+{
+   if(m_handle == INVALID_HANDLE)
+   {
+      Print("CAtr::GetValues: ATR handle is invalid");
+      return false;
+   }
+   
+   ArraySetAsSeries(atr_array, true);
+   int copied = CopyBuffer(m_handle, 0, start_pos, count, atr_array);
+   
+   if(copied != count)
+   {
+      PrintFormat("CAtr::GetValues: Failed to copy %d ATR values. Copied: %d, Error: %d", 
+                  count, copied, GetLastError());
+      return false;
+   }
+   
+   return true;
+}
+
+//+------------------------------------------------------------------+
+//| Get current ATR value (shift 1 for completed bar)              |
+//+------------------------------------------------------------------+
+double CAtr::GetCurrentATR()
+{
+   return Main(1); // Use shift 1 for last completed bar
+}
+
+//+------------------------------------------------------------------+
+//| Check if ATR handle is valid                                    |
+//+------------------------------------------------------------------+
+bool CAtr::IsValidHandle() const
+{
+   return (m_handle != INVALID_HANDLE);
+}

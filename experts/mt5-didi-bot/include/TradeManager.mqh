@@ -9,8 +9,9 @@
 #include <Trade/Trade.mqh>
 #include "SignalEngine.mqh"
 
-//--- Forward declaration
+//--- Forward declarations
 class CGraphicManager;
+class CRiskManager;
 
 //--- Active Stop Loss Tracking Structure
 struct ActiveStopLoss
@@ -41,6 +42,7 @@ public:
    void              SetMagicNumber(long magic);
    void              SetGraphicManager(CGraphicManager *graphic_mgr);
    void              CheckForEntry(CDmi &dmi,CDidiIndex &didi,CBollingerBands &bb);
+   void              CheckForEntryWithStops(CDmi &dmi,CDidiIndex &didi,CBollingerBands &bb,CAtr &atr,CRiskManager &risk_mgr);
    void              CheckForExit(CDmi &dmi,CStochastic &stoch,CTrix &trix,CBollingerBands &bb);
    void              ReadChartObjects();
    
@@ -52,6 +54,22 @@ public:
    ActiveStopLoss*   GetActiveStopLoss(ulong ticket);
    int               GetActiveStopLossCount();
    void              CleanupClosedTrades();
+   
+   // Stop Loss Placement Methods (T010)
+   bool              PlaceStopLoss(ulong ticket, double stop_loss_level);
+   bool              ModifyStopLoss(ulong ticket, double new_stop_level);
+   bool              PlaceStopLimitOrder(ulong original_ticket, ENUM_ORDER_TYPE order_type, double volume, 
+                                        double stop_price, double limit_price);
+   bool              ExecuteMarketStopOrder(ulong ticket, double volume);
+   
+   // Trailing Stop Methods (T011)
+   void              CheckTrailingStops(double current_atr);
+   bool              AdjustTrailingStop(ulong ticket, double new_stop_level);
+   bool              ShouldTrailStop(double entry_price, double current_price, double current_stop, 
+                                    double atr_value, double atr_multiplier, ENUM_ORDER_TYPE order_type);
+   double            CalculateTrailingStopLevel(double current_price, double atr_value, double atr_multiplier, 
+                                               ENUM_ORDER_TYPE order_type);
+   bool              ShouldAdjustTrailingStop(double current_stop, double potential_new_stop, ENUM_ORDER_TYPE order_type);
   };
 //+------------------------------------------------------------------+
 //| Constructor                                                      |
@@ -361,5 +379,517 @@ void CTradeManager::CleanupClosedTrades()
          PrintFormat("CleanupClosedTrades: Removing closed trade %I64u from stop loss tracking", ticket);
          RemoveActiveStopLoss(ticket);
         }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| T010: Place stop loss for new trade                             |
+//+------------------------------------------------------------------+
+bool CTradeManager::PlaceStopLoss(ulong ticket, double stop_loss_level)
+  {
+   if(!PositionSelectByTicket(ticket))
+     {
+      PrintFormat("PlaceStopLoss: Position %I64u not found", ticket);
+      return false;
+     }
+   
+   if(stop_loss_level <= 0)
+     {
+      PrintFormat("PlaceStopLoss: Invalid stop loss level %.5f for ticket %I64u", stop_loss_level, ticket);
+      return false;
+     }
+   
+   double current_tp = PositionGetDouble(POSITION_TP);
+   
+   // Attempt to modify the position with stop loss
+   bool result = m_trade.PositionModify(ticket, stop_loss_level, current_tp);
+   
+   if(result)
+     {
+      PrintFormat("PlaceStopLoss: Stop loss %.5f successfully placed for ticket %I64u", stop_loss_level, ticket);
+     }
+   else
+     {
+      PrintFormat("PlaceStopLoss: Failed to place stop loss %.5f for ticket %I64u. Error: %d", 
+                  stop_loss_level, ticket, GetLastError());
+     }
+   
+   return result;
+  }
+
+//+------------------------------------------------------------------+
+//| T010: Modify existing stop loss                                 |
+//+------------------------------------------------------------------+
+bool CTradeManager::ModifyStopLoss(ulong ticket, double new_stop_level)
+  {
+   if(!PositionSelectByTicket(ticket))
+     {
+      PrintFormat("ModifyStopLoss: Position %I64u not found", ticket);
+      return false;
+     }
+   
+   if(new_stop_level <= 0)
+     {
+      PrintFormat("ModifyStopLoss: Invalid stop loss level %.5f for ticket %I64u", new_stop_level, ticket);
+      return false;
+     }
+   
+   double current_sl = PositionGetDouble(POSITION_SL);
+   double current_tp = PositionGetDouble(POSITION_TP);
+   
+   // Check if modification is actually needed
+   if(MathAbs(current_sl - new_stop_level) < _Point)
+     {
+      PrintFormat("ModifyStopLoss: Stop loss %.5f already set for ticket %I64u", new_stop_level, ticket);
+      return true;
+     }
+   
+   // Attempt to modify the position
+   bool result = m_trade.PositionModify(ticket, new_stop_level, current_tp);
+   
+   if(result)
+     {
+      PrintFormat("ModifyStopLoss: Stop loss modified from %.5f to %.5f for ticket %I64u", 
+                  current_sl, new_stop_level, ticket);
+      
+      // Update active stop loss tracking
+      UpdateActiveStopLoss(ticket, new_stop_level, TimeCurrent());
+     }
+   else
+     {
+      PrintFormat("ModifyStopLoss: Failed to modify stop loss to %.5f for ticket %I64u. Error: %d", 
+                  new_stop_level, ticket, GetLastError());
+     }
+   
+   return result;
+  }
+
+//+------------------------------------------------------------------+
+//| T010: Place stop limit order when stop is triggered            |
+//+------------------------------------------------------------------+
+bool CTradeManager::PlaceStopLimitOrder(ulong original_ticket, ENUM_ORDER_TYPE order_type, double volume, 
+                                        double stop_price, double limit_price)
+  {
+   if(volume <= 0 || stop_price <= 0 || limit_price <= 0)
+     {
+      PrintFormat("PlaceStopLimitOrder: Invalid parameters. Volume: %.2f, Stop: %.5f, Limit: %.5f", 
+                  volume, stop_price, limit_price);
+      return false;
+     }
+   
+   // Validate order type for stop limit
+   if(order_type != ORDER_TYPE_BUY_STOP_LIMIT && order_type != ORDER_TYPE_SELL_STOP_LIMIT)
+     {
+      PrintFormat("PlaceStopLimitOrder: Invalid order type %d for stop limit order", order_type);
+      return false;
+     }
+   
+   // Set trade request
+   m_trade.SetTypeFilling(ORDER_FILLING_RETURN);
+   
+   bool result = false;
+   if(order_type == ORDER_TYPE_BUY_STOP_LIMIT)
+     {
+      result = m_trade.BuyStopLimit(volume, limit_price, stop_price, 0, 0, ORDER_TIME_GTC, 0, 
+                                   StringFormat("StopLimit for %I64u", original_ticket));
+     }
+   else
+     {
+      result = m_trade.SellStopLimit(volume, limit_price, stop_price, 0, 0, ORDER_TIME_GTC, 0, 
+                                    StringFormat("StopLimit for %I64u", original_ticket));
+     }
+   
+   // Reset to default filling
+   m_trade.SetTypeFilling(ORDER_FILLING_FOK);
+   
+   if(result)
+     {
+      PrintFormat("PlaceStopLimitOrder: Stop limit order placed successfully. Type: %d, Volume: %.2f, Stop: %.5f, Limit: %.5f", 
+                  order_type, volume, stop_price, limit_price);
+     }
+   else
+     {
+      PrintFormat("PlaceStopLimitOrder: Failed to place stop limit order. Error: %d", GetLastError());
+     }
+   
+   return result;
+  }
+
+//+------------------------------------------------------------------+
+//| T010: Execute market order as fallback for failed stop limit   |
+//+------------------------------------------------------------------+
+bool CTradeManager::ExecuteMarketStopOrder(ulong ticket, double volume)
+  {
+   if(!PositionSelectByTicket(ticket))
+     {
+      PrintFormat("ExecuteMarketStopOrder: Position %I64u not found", ticket);
+      return false;
+     }
+   
+   if(volume <= 0)
+     {
+      PrintFormat("ExecuteMarketStopOrder: Invalid volume %.2f for ticket %I64u", volume, ticket);
+      return false;
+     }
+   
+   ENUM_POSITION_TYPE pos_type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+   
+   bool result = false;
+   if(pos_type == POSITION_TYPE_BUY)
+     {
+      result = m_trade.Sell(volume, _Symbol, 0, 0, 0, StringFormat("Market Stop for %I64u", ticket));
+     }
+   else if(pos_type == POSITION_TYPE_SELL)
+     {
+      result = m_trade.Buy(volume, _Symbol, 0, 0, 0, StringFormat("Market Stop for %I64u", ticket));
+     }
+   else
+     {
+      PrintFormat("ExecuteMarketStopOrder: Invalid position type %d for ticket %I64u", pos_type, ticket);
+      return false;
+     }
+   
+   if(result)
+     {
+      PrintFormat("ExecuteMarketStopOrder: Market stop order executed successfully for ticket %I64u, Volume: %.2f", 
+                  ticket, volume);
+      
+      // Remove from active stops tracking
+      RemoveActiveStopLoss(ticket);
+     }
+   else
+     {
+      PrintFormat("ExecuteMarketStopOrder: Failed to execute market stop for ticket %I64u. Error: %d", 
+                  ticket, GetLastError());
+     }
+   
+   return result;
+  }
+
+//+------------------------------------------------------------------+
+//| T011: Check and adjust trailing stops for all active trades    |
+//+------------------------------------------------------------------+
+void CTradeManager::CheckTrailingStops(double current_atr)
+  {
+   if(current_atr <= 0)
+     {
+      Print("CheckTrailingStops: Invalid ATR value, skipping trailing stop checks");
+      return;
+     }
+   
+   for(int i = 0; i < ArraySize(m_active_stops); i++)
+     {
+      if(!m_active_stops[i].is_trailing)
+         continue; // Skip non-trailing stops
+      
+      ulong ticket = m_active_stops[i].ticket;
+      
+      if(!PositionSelectByTicket(ticket))
+        {
+         PrintFormat("CheckTrailingStops: Position %I64u not found, removing from tracking", ticket);
+         RemoveActiveStopLoss(ticket);
+         i--; // Adjust index after removal
+         continue;
+        }
+      
+      double current_price = 0;
+      double entry_price = m_active_stops[i].entry_price;
+      ENUM_ORDER_TYPE order_type = m_active_stops[i].order_type;
+      
+      // Get current market price
+      if(order_type == ORDER_TYPE_BUY)
+         current_price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+      else if(order_type == ORDER_TYPE_SELL)
+         current_price = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+      else
+         continue;
+      
+      double current_stop = PositionGetDouble(POSITION_SL);
+      double atr_multiplier = 1.5; // TODO: Get from configuration
+      
+      // Check if we should trail the stop
+      if(ShouldTrailStop(entry_price, current_price, current_stop, current_atr, atr_multiplier, order_type))
+        {
+         double new_stop = CalculateTrailingStopLevel(current_price, current_atr, atr_multiplier, order_type);
+         
+         if(ShouldAdjustTrailingStop(current_stop, new_stop, order_type))
+           {
+            AdjustTrailingStop(ticket, new_stop);
+           }
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| T011: Adjust trailing stop for specific trade                   |
+//+------------------------------------------------------------------+
+bool CTradeManager::AdjustTrailingStop(ulong ticket, double new_stop_level)
+  {
+   if(!PositionSelectByTicket(ticket))
+     {
+      PrintFormat("AdjustTrailingStop: Position %I64u not found", ticket);
+      return false;
+     }
+   
+   double current_tp = PositionGetDouble(POSITION_TP);
+   bool result = m_trade.PositionModify(ticket, new_stop_level, current_tp);
+   
+   if(result)
+     {
+      PrintFormat("AdjustTrailingStop: Trailing stop adjusted to %.5f for ticket %I64u", new_stop_level, ticket);
+      
+      // Update tracking
+      UpdateActiveStopLoss(ticket, new_stop_level, TimeCurrent());
+     }
+   else
+     {
+      PrintFormat("AdjustTrailingStop: Failed to adjust trailing stop to %.5f for ticket %I64u. Error: %d", 
+                  new_stop_level, ticket, GetLastError());
+     }
+   
+   return result;
+  }
+
+//+------------------------------------------------------------------+
+//| T011: Determine if stop should be trailed                       |
+//+------------------------------------------------------------------+
+bool CTradeManager::ShouldTrailStop(double entry_price, double current_price, double current_stop, 
+                                    double atr_value, double atr_multiplier, ENUM_ORDER_TYPE order_type)
+  {
+   if(entry_price <= 0 || current_price <= 0 || atr_value <= 0 || atr_multiplier <= 0)
+     {
+      return false;
+     }
+   
+   double min_movement = atr_value * 0.5; // Minimum movement to trigger trailing
+   
+   if(order_type == ORDER_TYPE_BUY)
+     {
+      // For buy trades, price must move up favorably
+      double favorable_movement = current_price - entry_price;
+      return (favorable_movement > min_movement);
+     }
+   else if(order_type == ORDER_TYPE_SELL)
+     {
+      // For sell trades, price must move down favorably
+      double favorable_movement = entry_price - current_price;
+      return (favorable_movement > min_movement);
+     }
+   
+   return false;
+  }
+
+//+------------------------------------------------------------------+
+//| T011: Calculate new trailing stop level                         |
+//+------------------------------------------------------------------+
+double CTradeManager::CalculateTrailingStopLevel(double current_price, double atr_value, double atr_multiplier, 
+                                                 ENUM_ORDER_TYPE order_type)
+  {
+   if(current_price <= 0 || atr_value <= 0 || atr_multiplier <= 0)
+     {
+      return 0.0;
+     }
+   
+   double stop_distance = atr_value * atr_multiplier;
+   
+   if(order_type == ORDER_TYPE_BUY)
+     {
+      return current_price - stop_distance;
+     }
+   else if(order_type == ORDER_TYPE_SELL)
+     {
+      return current_price + stop_distance;
+     }
+   
+   return 0.0;
+  }
+
+//+------------------------------------------------------------------+
+//| T011: Check if trailing stop should be adjusted                 |
+//+------------------------------------------------------------------+
+bool CTradeManager::ShouldAdjustTrailingStop(double current_stop, double potential_new_stop, ENUM_ORDER_TYPE order_type)
+  {
+   if(current_stop <= 0 || potential_new_stop <= 0)
+     {
+      return false;
+     }
+   
+   // Ensure stop only moves in favorable direction
+   if(order_type == ORDER_TYPE_BUY)
+     {
+      // For buy trades, stop should only move up (higher)
+      return (potential_new_stop > current_stop);
+     }
+   else if(order_type == ORDER_TYPE_SELL)
+     {
+      // For sell trades, stop should only move down (lower)
+      return (potential_new_stop < current_stop);
+     }
+   
+   return false;
+  }
+
+//+------------------------------------------------------------------+
+//| T013: Enhanced entry check with stop loss integration          |
+//+------------------------------------------------------------------+
+void CTradeManager::CheckForEntryWithStops(CDmi &dmi,CDidiIndex &didi,CBollingerBands &bb,CAtr &atr,CRiskManager &risk_mgr)
+  {
+//--- Entry signals
+   bool buy_signal=dmi.PlusDi(1)>dmi.MinusDi(1) && didi.IsAgulhada(1) && bb.UpperBand(1)>bb.MiddleBand(1);
+   bool sell_signal=dmi.MinusDi(1)>dmi.PlusDi(1) && didi.IsAgulhada(1) && bb.LowerBand(1)<bb.MiddleBand(1);
+
+   PrintFormat("CheckForEntryWithStops: Evaluating signals. Buy: %s, Sell: %s", (string)buy_signal, (string)sell_signal);
+   PrintFormat("  DMI: +DI=%.5f, -DI=%.5f", dmi.PlusDi(1), dmi.MinusDi(1));
+   PrintFormat("  Didi Agulhada: %s", (string)didi.IsAgulhada(1));
+   PrintFormat("  Bollinger Bands: Upper=%.5f, Middle=%.5f, Lower=%.5f", bb.UpperBand(1), bb.MiddleBand(1), bb.LowerBand(1));
+
+   if(PositionsTotal()==0)
+     {
+      if(buy_signal)
+        {
+         Print("CheckForEntryWithStops: Buy signal confirmed. Calculating stop loss and position size.");
+         double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+         double current_atr = atr.GetCurrentATR();
+         
+         if(current_atr <= 0)
+           {
+            Print("CheckForEntryWithStops: Invalid ATR value, skipping trade");
+            return;
+           }
+         
+         // Get stop loss configuration
+         StopLossConfig config = risk_mgr.GetStopLossConfig();
+         
+         // Calculate stop loss level
+         double stop_loss = 0.0;
+         if(config.type == ATR_BASED)
+           {
+            stop_loss = risk_mgr.CalculateATRStopLoss(ask, current_atr, config.atr_multiplier, ORDER_TYPE_BUY);
+           }
+         else
+           {
+            stop_loss = risk_mgr.CalculateFixedPipStopLoss(ask, config.fixed_pips, ORDER_TYPE_BUY);
+           }
+         
+         // Apply maximum stop cap
+         stop_loss = risk_mgr.ApplyMaxStopCap(stop_loss, ask, ORDER_TYPE_BUY);
+         
+         // Validate stop distance
+         if(!risk_mgr.ValidateStopDistance(ask, stop_loss, ORDER_TYPE_BUY))
+           {
+            Print("CheckForEntryWithStops: Stop loss validation failed, skipping trade");
+            return;
+           }
+         
+         // Calculate position size based on stop distance
+         double stop_distance_pips = MathAbs(ask - stop_loss) / (_Point * 10);
+         double lot_size = risk_mgr.CalculateLotSize(stop_distance_pips);
+         
+         PrintFormat("CheckForEntryWithStops: Entry: %.5f, Stop: %.5f, Distance: %.1f pips, Lot Size: %.2f", 
+                     ask, stop_loss, stop_distance_pips, lot_size);
+         
+         // Draw entry signal on chart
+         if(m_graphic_mgr != NULL)
+         {
+            string reason = StringFormat("DMI: +DI>-DI, Didi: Agulhada, BB: Upper>Middle, SL: %.5f", stop_loss);
+            m_graphic_mgr.DrawEntrySignal(TimeCurrent(), ask, true, reason);
+         }
+         
+         // Execute trade with stop loss
+         if(m_trade.Buy(lot_size, _Symbol, ask, stop_loss, 0, "Buy Signal with SL"))
+           {
+            ulong ticket = m_trade.ResultOrder();
+            PrintFormat("CheckForEntryWithStops: BUY order sent successfully. Order: %I64u", ticket);
+            
+            // Add to stop loss tracking
+            if(config.trailing_enabled)
+              {
+               AddActiveStopLoss(ticket, stop_distance_pips, stop_loss, ask, ORDER_TYPE_BUY);
+               PrintFormat("CheckForEntryWithStops: Added ticket %I64u to trailing stop tracking", ticket);
+              }
+           }
+         else
+           {
+            PrintFormat("CheckForEntryWithStops: Failed to send BUY order. Error: %d, RetCode: %d", 
+                       GetLastError(), m_trade.ResultRetcode());
+           }
+        }
+      else if(sell_signal)
+        {
+         Print("CheckForEntryWithStops: Sell signal confirmed. Calculating stop loss and position size.");
+         double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+         double current_atr = atr.GetCurrentATR();
+         
+         if(current_atr <= 0)
+           {
+            Print("CheckForEntryWithStops: Invalid ATR value, skipping trade");
+            return;
+           }
+         
+         // Get stop loss configuration
+         StopLossConfig config = risk_mgr.GetStopLossConfig();
+         
+         // Calculate stop loss level
+         double stop_loss = 0.0;
+         if(config.type == ATR_BASED)
+           {
+            stop_loss = risk_mgr.CalculateATRStopLoss(bid, current_atr, config.atr_multiplier, ORDER_TYPE_SELL);
+           }
+         else
+           {
+            stop_loss = risk_mgr.CalculateFixedPipStopLoss(bid, config.fixed_pips, ORDER_TYPE_SELL);
+           }
+         
+         // Apply maximum stop cap
+         stop_loss = risk_mgr.ApplyMaxStopCap(stop_loss, bid, ORDER_TYPE_SELL);
+         
+         // Validate stop distance
+         if(!risk_mgr.ValidateStopDistance(bid, stop_loss, ORDER_TYPE_SELL))
+           {
+            Print("CheckForEntryWithStops: Stop loss validation failed, skipping trade");
+            return;
+           }
+         
+         // Calculate position size based on stop distance
+         double stop_distance_pips = MathAbs(bid - stop_loss) / (_Point * 10);
+         double lot_size = risk_mgr.CalculateLotSize(stop_distance_pips);
+         
+         PrintFormat("CheckForEntryWithStops: Entry: %.5f, Stop: %.5f, Distance: %.1f pips, Lot Size: %.2f", 
+                     bid, stop_loss, stop_distance_pips, lot_size);
+         
+         // Draw entry signal on chart
+         if(m_graphic_mgr != NULL)
+         {
+            string reason = StringFormat("DMI: -DI>+DI, Didi: Agulhada, BB: Lower<Middle, SL: %.5f", stop_loss);
+            m_graphic_mgr.DrawEntrySignal(TimeCurrent(), bid, false, reason);
+         }
+         
+         // Execute trade with stop loss
+         if(m_trade.Sell(lot_size, _Symbol, bid, stop_loss, 0, "Sell Signal with SL"))
+           {
+            ulong ticket = m_trade.ResultOrder();
+            PrintFormat("CheckForEntryWithStops: SELL order sent successfully. Order: %I64u", ticket);
+            
+            // Add to stop loss tracking
+            if(config.trailing_enabled)
+              {
+               AddActiveStopLoss(ticket, stop_distance_pips, stop_loss, bid, ORDER_TYPE_SELL);
+               PrintFormat("CheckForEntryWithStops: Added ticket %I64u to trailing stop tracking", ticket);
+              }
+           }
+         else
+           {
+            PrintFormat("CheckForEntryWithStops: Failed to send SELL order. Error: %d, RetCode: %d", 
+                       GetLastError(), m_trade.ResultRetcode());
+           }
+        }
+      else
+        {
+         Print("CheckForEntryWithStops: No valid entry signal.");
+        }
+     }
+   else
+     {
+      Print("CheckForEntryWithStops: Position already open. Skipping entry check.");
      }
   }

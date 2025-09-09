@@ -92,42 +92,42 @@
 
 ## Phase 3.3: Core Implementation (ONLY after tests are failing)
 
-- [ ] T008 Implement ATR integration in SignalEngine.mqh
+- [x] T008 Implement ATR integration in SignalEngine.mqh
   - Add ATR indicator handle creation and management
   - Add ATR value retrieval methods
   - Add ATR calculation wrapper with error handling
   - Integrate with existing indicator initialization pattern
   - Files: `experts/mt5-didi-bot/include/SignalEngine.mqh`
 
-- [ ] T009 Implement stop loss calculation methods in RiskManager.mqh
+- [x] T009 Implement stop loss calculation methods in RiskManager.mqh
   - Add CalculateATRStopLoss() method with multiplier parameter
   - Add CalculateFixedPipStopLoss() method
   - Add ValidateStopDistance() method for broker compliance
   - Add ApplyMaxStopCap() method for risk control
   - Files: `experts/mt5-didi-bot/include/RiskManager.mqh`
 
-- [ ] T010 Implement stop loss placement in TradeManager.mqh
+- [x] T010 Implement stop loss placement in TradeManager.mqh
   - Add PlaceStopLoss() method for new trades
   - Add ModifyStopLoss() method for adjustments
   - Add stop limit order placement logic
   - Add error handling for broker rejections
   - Files: `experts/mt5-didi-bot/include/TradeManager.mqh`
 
-- [ ] T011 Implement trailing stop logic in TradeManager.mqh
+- [x] T011 Implement trailing stop logic in TradeManager.mqh
   - Add CheckTrailingStops() method for price monitoring
   - Add AdjustTrailingStop() method for stop modification
   - Add ShouldTrailStop() logic for favorable movement detection
   - Add trailing stop state management
   - Files: `experts/mt5-didi-bot/include/TradeManager.mqh`
 
-- [ ] T012 Integrate configuration validation in RiskManager.mqh
+- [x] T012 Integrate configuration validation in RiskManager.mqh
   - Add ValidateStopLossConfig() method
   - Add range validation for ATR multiplier (0.5-5.0)
   - Add validation for maximum stop pips
   - Add error logging for invalid configurations
   - Files: `experts/mt5-didi-bot/include/RiskManager.mqh`
 
-- [ ] T013 Update trade opening logic in TradeManager.mqh
+- [x] T013 Update trade opening logic in TradeManager.mqh
   - Integrate stop loss calculation with trade execution
   - Add stop loss parameter to trade opening methods
   - Update existing trade entry points for stop loss

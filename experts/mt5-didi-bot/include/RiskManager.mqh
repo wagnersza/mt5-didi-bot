@@ -50,6 +50,13 @@ public:
    StopLossConfig    GetStopLossConfig() const;
    bool              ValidateStopLossConfig(const StopLossConfig &config);
    void              InitializeDefaultConfig();
+   
+   // Stop Loss Calculation Methods (T009)
+   double            CalculateATRStopLoss(double entry_price, double atr_value, double multiplier, ENUM_ORDER_TYPE order_type);
+   double            CalculateFixedPipStopLoss(double entry_price, int fixed_pips, ENUM_ORDER_TYPE order_type);
+   bool              ValidateStopDistance(double entry_price, double stop_loss, ENUM_ORDER_TYPE order_type);
+   double            ApplyMaxStopCap(double stop_loss, double entry_price, ENUM_ORDER_TYPE order_type);
+   bool              ValidateStopLossConfig();
   };
 //+------------------------------------------------------------------+
 //| Constructor                                                      |
@@ -209,4 +216,185 @@ void CRiskManager::InitializeDefaultConfig()
    m_stop_config.min_stop_distance = 10;
    
    Print("RiskManager: Default stop loss configuration initialized");
+  }
+
+//+------------------------------------------------------------------+
+//| Calculate ATR-based stop loss                                   |
+//+------------------------------------------------------------------+
+double CRiskManager::CalculateATRStopLoss(double entry_price, double atr_value, double multiplier, ENUM_ORDER_TYPE order_type)
+  {
+   if(entry_price <= 0 || atr_value <= 0 || multiplier <= 0)
+     {
+      PrintFormat("RiskManager: Invalid parameters for ATR stop loss. Entry: %.5f, ATR: %.5f, Multiplier: %.2f", 
+                  entry_price, atr_value, multiplier);
+      return 0.0;
+     }
+   
+   double stop_distance = atr_value * multiplier;
+   double stop_loss = 0.0;
+   
+   if(order_type == ORDER_TYPE_BUY)
+     {
+      stop_loss = entry_price - stop_distance;
+     }
+   else if(order_type == ORDER_TYPE_SELL)
+     {
+      stop_loss = entry_price + stop_distance;
+     }
+   else
+     {
+      PrintFormat("RiskManager: Invalid order type for stop loss calculation: %d", order_type);
+      return 0.0;
+     }
+   
+   PrintFormat("RiskManager: ATR Stop Loss calculated - Entry: %.5f, ATR: %.5f, Multiplier: %.2f, Stop: %.5f", 
+               entry_price, atr_value, multiplier, stop_loss);
+   
+   return stop_loss;
+  }
+
+//+------------------------------------------------------------------+
+//| Calculate fixed pip stop loss                                   |
+//+------------------------------------------------------------------+
+double CRiskManager::CalculateFixedPipStopLoss(double entry_price, int fixed_pips, ENUM_ORDER_TYPE order_type)
+  {
+   if(entry_price <= 0 || fixed_pips <= 0)
+     {
+      PrintFormat("RiskManager: Invalid parameters for fixed pip stop loss. Entry: %.5f, Pips: %d", 
+                  entry_price, fixed_pips);
+      return 0.0;
+     }
+   
+   // Calculate pip value based on symbol digits
+   double pip_value = _Point;
+   if(_Digits == 5 || _Digits == 3)
+      pip_value *= 10; // For 5-digit and 3-digit quotes
+   
+   double stop_distance = fixed_pips * pip_value;
+   double stop_loss = 0.0;
+   
+   if(order_type == ORDER_TYPE_BUY)
+     {
+      stop_loss = entry_price - stop_distance;
+     }
+   else if(order_type == ORDER_TYPE_SELL)
+     {
+      stop_loss = entry_price + stop_distance;
+     }
+   else
+     {
+      PrintFormat("RiskManager: Invalid order type for fixed pip stop loss: %d", order_type);
+      return 0.0;
+     }
+   
+   PrintFormat("RiskManager: Fixed Pip Stop Loss calculated - Entry: %.5f, Pips: %d, Stop: %.5f", 
+               entry_price, fixed_pips, stop_loss);
+   
+   return stop_loss;
+  }
+
+//+------------------------------------------------------------------+
+//| Validate stop loss distance against broker requirements         |
+//+------------------------------------------------------------------+
+bool CRiskManager::ValidateStopDistance(double entry_price, double stop_loss, ENUM_ORDER_TYPE order_type)
+  {
+   if(entry_price <= 0 || stop_loss <= 0)
+     {
+      PrintFormat("RiskManager: Invalid prices for stop distance validation. Entry: %.5f, Stop: %.5f", 
+                  entry_price, stop_loss);
+      return false;
+     }
+   
+   // Calculate distance in points
+   double distance = MathAbs(entry_price - stop_loss);
+   double min_distance = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL) * _Point;
+   
+   if(min_distance == 0)
+      min_distance = m_stop_config.min_stop_distance * _Point * 10; // Use configured minimum
+   
+   if(distance < min_distance)
+     {
+      PrintFormat("RiskManager: Stop loss too close to entry. Distance: %.5f, Minimum: %.5f", 
+                  distance, min_distance);
+      return false;
+     }
+   
+   // Validate direction
+   if(order_type == ORDER_TYPE_BUY && stop_loss >= entry_price)
+     {
+      PrintFormat("RiskManager: Invalid buy stop loss direction. Entry: %.5f, Stop: %.5f", 
+                  entry_price, stop_loss);
+      return false;
+     }
+   
+   if(order_type == ORDER_TYPE_SELL && stop_loss <= entry_price)
+     {
+      PrintFormat("RiskManager: Invalid sell stop loss direction. Entry: %.5f, Stop: %.5f", 
+                  entry_price, stop_loss);
+      return false;
+     }
+   
+   return true;
+  }
+
+//+------------------------------------------------------------------+
+//| Apply maximum stop loss cap                                     |
+//+------------------------------------------------------------------+
+double CRiskManager::ApplyMaxStopCap(double stop_loss, double entry_price, ENUM_ORDER_TYPE order_type)
+  {
+   if(entry_price <= 0 || stop_loss <= 0 || m_stop_config.max_stop_pips <= 0)
+     {
+      return stop_loss; // Return original if invalid parameters
+     }
+   
+   // Calculate pip value
+   double pip_value = _Point;
+   if(_Digits == 5 || _Digits == 3)
+      pip_value *= 10;
+   
+   double max_stop_distance = m_stop_config.max_stop_pips * pip_value;
+   double current_distance = MathAbs(entry_price - stop_loss);
+   
+   if(current_distance <= max_stop_distance)
+     {
+      return stop_loss; // Within limits, return original
+     }
+   
+   // Cap the stop loss
+   double capped_stop = 0.0;
+   if(order_type == ORDER_TYPE_BUY)
+     {
+      capped_stop = entry_price - max_stop_distance;
+     }
+   else if(order_type == ORDER_TYPE_SELL)
+     {
+      capped_stop = entry_price + max_stop_distance;
+     }
+   else
+     {
+      return stop_loss; // Invalid order type, return original
+     }
+   
+   PrintFormat("RiskManager: Stop loss capped - Original: %.5f, Capped: %.5f, Max Pips: %d", 
+               stop_loss, capped_stop, m_stop_config.max_stop_pips);
+   
+   return capped_stop;
+  }
+
+//+------------------------------------------------------------------+
+//| Validate stop loss configuration                                |
+//+------------------------------------------------------------------+
+bool CRiskManager::ValidateStopLossConfig()
+  {
+   bool is_valid = ValidateStopLossConfig(m_stop_config);
+   
+   if(!is_valid)
+     {
+      Print("RiskManager: Current stop loss configuration is invalid, resetting to defaults");
+      InitializeDefaultConfig();
+      return false;
+     }
+   
+   Print("RiskManager: Stop loss configuration validation passed");
+   return true;
   }
