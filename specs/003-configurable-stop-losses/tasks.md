@@ -64,27 +64,27 @@
 
 **CRITICAL: These tests MUST be written and MUST FAIL before ANY implementation**
 
-- [ ] T004 [P] Create test_stop_losses.mq5 for ATR calculation testing
+- [x] T004 [P] Create test_stop_losses.mq5 for ATR calculation testing
   - Test ATR-based stop loss calculation with various multipliers
   - Test fixed pip stop loss calculation
   - Test broker minimum distance validation
   - Test maximum stop loss cap enforcement
   - Files: `experts/mt5-didi-bot/tests/test_stop_losses.mq5`
 
-- [ ] T005 [P] Create trailing stop test scenarios in test_stop_losses.mq5
+- [x] T005 [P] Create trailing stop test scenarios in test_stop_losses.mq5
   - Test trailing stop activation during favorable movement
   - Test trailing stop distance maintenance
   - Test trailing stop prevention of adverse movement
   - Test trailing stop with different ATR multipliers
   - Files: `experts/mt5-didi-bot/tests/test_stop_losses.mq5`
 
-- [ ] T006 [P] Create stop limit order test scenarios in test_stop_losses.mq5
+- [x] T006 [P] Create stop limit order test scenarios in test_stop_losses.mq5
   - Test stop limit order placement when triggered
   - Test slippage control during stop execution
   - Test fallback to market order if stop limit fails
   - Files: `experts/mt5-didi-bot/tests/test_stop_losses.mq5`
 
-- [ ] T007 [P] Create integration test for stop loss with Didi strategy
+- [x] T007 [P] Create integration test for stop loss with Didi strategy
   - Test stop loss integration with existing trade signals
   - Test position sizing integration with stop loss distance
   - Test chart visualization of stop loss levels
