@@ -7,6 +7,13 @@
 #property link      "https://www.mql5.com"
 
 #include "SignalEngine.mqh"
+#include "WindowManager.mqh"
+#include "displays/MainChartDisplay.mqh"
+#include "displays/DmiDisplay.mqh"
+#include "displays/DidiDisplay.mqh"
+#include "displays/StochasticDisplay.mqh"
+#include "displays/TrixDisplay.mqh"
+#include "displays/IfrDisplay.mqh"
 
 //+------------------------------------------------------------------+
 //| Class for managing chart graphics and visual indicators         |
@@ -20,13 +27,39 @@ protected:
    color             m_neutral_color;    // Neutral signal color
    int               m_arrow_size;       // Arrow size for signals
    
+   // Multi-window management
+   CWindowManager*   m_window_manager;   // Window lifecycle coordinator
+   CMainChartDisplay* m_main_display;    // Main chart display handler
+   CDmiDisplay*      m_dmi_display;      // DMI indicator window display
+   CDidiDisplay*     m_didi_display;     // Didi Index window display
+   CStochasticDisplay* m_stoch_display;  // Stochastic window display
+   CTrixDisplay*     m_trix_display;     // TRIX window display
+   CIfrDisplay*      m_ifr_display;      // IFR window display
+   
+   // Window indices for display coordination
+   int               m_dmi_window_index;
+   int               m_didi_window_index;
+   int               m_stoch_window_index;
+   int               m_trix_window_index;
+   int               m_ifr_window_index;
+   
 public:
                      CGraphicManager();
                     ~CGraphicManager();
    void              Init(string prefix = "DidiBot_");
    void              ClearAll();
    
-   // Signal visualization methods
+   // Multi-window initialization and management
+   bool              InitializeWindows(long chart_id = 0);
+   bool              CreateIndicatorWindows(CDmi &dmi, CDidiIndex &didi, CStochastic &stoch, CTrix &trix, CIfr &ifr);
+   void              CleanupWindows();
+   
+   // Multi-window display coordination
+   void              UpdateAllDisplays(CDmi &dmi, CDidiIndex &didi, CBollingerBands &bb, 
+                                     CStochastic &stoch, CTrix &trix, CIfr &ifr);
+   void              UpdateWindowDisplays(const datetime bar_time, const int bar_shift = 0);
+   
+   // Signal visualization methods (backward compatible)
    void              DrawEntrySignal(datetime time, double price, bool is_buy, string reason);
    void              DrawExitSignal(datetime time, double price, bool is_buy, string reason);
    void              UpdateSignalPanel(CDmi &dmi, CDidiIndex &didi, CBollingerBands &bb, 
@@ -80,6 +113,22 @@ CGraphicManager::CGraphicManager()
    m_bear_color = clrRed;
    m_neutral_color = clrYellow;
    m_arrow_size = 3;
+   
+   // Initialize multi-window management objects
+   m_window_manager = NULL;
+   m_main_display = NULL;
+   m_dmi_display = NULL;
+   m_didi_display = NULL;
+   m_stoch_display = NULL;
+   m_trix_display = NULL;
+   m_ifr_display = NULL;
+   
+   // Initialize window indices
+   m_dmi_window_index = -1;
+   m_didi_window_index = -1;
+   m_stoch_window_index = -1;
+   m_trix_window_index = -1;
+   m_ifr_window_index = -1;
 }
 
 //+------------------------------------------------------------------+
@@ -87,6 +136,7 @@ CGraphicManager::CGraphicManager()
 //+------------------------------------------------------------------+
 CGraphicManager::~CGraphicManager()
 {
+   CleanupWindows();
    ClearAll();
 }
 
@@ -98,6 +148,13 @@ void CGraphicManager::Init(string prefix = "DidiBot_")
    m_prefix = prefix;
    ClearAll();
    CreateInfoPanel();
+   
+   // Initialize window management
+   if(!InitializeWindows())
+   {
+      Print("GraphicManager: Warning - Window initialization failed");
+   }
+   
    Print("GraphicManager: Initialized with prefix: ", m_prefix);
 }
 
@@ -620,4 +677,254 @@ void CGraphicManager::DrawTrailingStop(string ticket, double stop_price, bool is
    DrawText(label_name, current_time, stop_price, label_text, trail_color, 8);
    
    Print("GraphicManager: Trailing stop drawn for ticket ", ticket, " at price ", stop_price);
+}
+
+//+------------------------------------------------------------------+
+//| Initialize window management system                              |
+//+------------------------------------------------------------------+
+bool CGraphicManager::InitializeWindows(long chart_id = 0)
+{
+   // Initialize window manager
+   m_window_manager = new CWindowManager();
+   if(m_window_manager == NULL)
+   {
+      Print("GraphicManager: Failed to create WindowManager");
+      return false;
+   }
+   
+   if(!m_window_manager.Init(chart_id, m_prefix))
+   {
+      Print("GraphicManager: Failed to initialize WindowManager");
+      delete m_window_manager;
+      m_window_manager = NULL;
+      return false;
+   }
+   
+   // Initialize main chart display
+   m_main_display = new CMainChartDisplay();
+   if(m_main_display == NULL)
+   {
+      Print("GraphicManager: Failed to create MainChartDisplay");
+      return false;
+   }
+   
+   if(!m_main_display.Init(chart_id, 0, m_prefix + "Main"))
+   {
+      Print("GraphicManager: Failed to initialize MainChartDisplay");
+      delete m_main_display;
+      m_main_display = NULL;
+      return false;
+   }
+   
+   Print("GraphicManager: Window management initialized successfully");
+   return true;
+}
+
+//+------------------------------------------------------------------+
+//| Create indicator windows for multi-window display               |
+//+------------------------------------------------------------------+
+bool CGraphicManager::CreateIndicatorWindows(CDmi &dmi, CDidiIndex &didi, CStochastic &stoch, CTrix &trix, CIfr &ifr)
+{
+   if(m_window_manager == NULL)
+   {
+      Print("GraphicManager: WindowManager not initialized");
+      return false;
+   }
+   
+   long chart_id = m_window_manager.GetChartId();
+   
+   // Create DMI window and display
+   m_dmi_window_index = m_window_manager.CreateIndicatorWindow("DMI", dmi.GetHandle());
+   if(m_dmi_window_index > 0)
+   {
+      m_dmi_display = new CDmiDisplay();
+      if(m_dmi_display != NULL && m_dmi_display.Init(chart_id, m_dmi_window_index, m_prefix + "DMI"))
+      {
+         Print("GraphicManager: DMI window created successfully, index: ", m_dmi_window_index);
+      }
+   }
+   
+   // Create Didi Index window and display  
+   m_didi_window_index = m_window_manager.CreateIndicatorWindow("Didi", didi.GetHandle());
+   if(m_didi_window_index > 0)
+   {
+      m_didi_display = new CDidiDisplay();
+      if(m_didi_display != NULL && m_didi_display.Init(chart_id, m_didi_window_index, m_prefix + "Didi"))
+      {
+         Print("GraphicManager: Didi window created successfully, index: ", m_didi_window_index);
+      }
+   }
+   
+   // Create Stochastic window and display
+   m_stoch_window_index = m_window_manager.CreateIndicatorWindow("Stochastic", stoch.GetHandle());
+   if(m_stoch_window_index > 0)
+   {
+      m_stoch_display = new CStochasticDisplay();
+      if(m_stoch_display != NULL && m_stoch_display.Init(chart_id, m_stoch_window_index, m_prefix + "Stoch"))
+      {
+         Print("GraphicManager: Stochastic window created successfully, index: ", m_stoch_window_index);
+      }
+   }
+   
+   // Create TRIX window and display
+   m_trix_window_index = m_window_manager.CreateIndicatorWindow("TRIX", trix.GetHandle());
+   if(m_trix_window_index > 0)
+   {
+      m_trix_display = new CTrixDisplay();
+      if(m_trix_display != NULL && m_trix_display.Init(chart_id, m_trix_window_index, m_prefix + "TRIX"))
+      {
+         Print("GraphicManager: TRIX window created successfully, index: ", m_trix_window_index);
+      }
+   }
+   
+   // Create IFR window and display
+   m_ifr_window_index = m_window_manager.CreateIndicatorWindow("IFR", ifr.GetHandle());
+   if(m_ifr_window_index > 0)
+   {
+      m_ifr_display = new CIfrDisplay();
+      if(m_ifr_display != NULL && m_ifr_display.Init(chart_id, m_ifr_window_index, m_prefix + "IFR"))
+      {
+         Print("GraphicManager: IFR window created successfully, index: ", m_ifr_window_index);
+      }
+   }
+   
+   Print("GraphicManager: Indicator windows creation completed");
+   return true;
+}
+
+//+------------------------------------------------------------------+
+//| Cleanup window management resources                              |
+//+------------------------------------------------------------------+
+void CGraphicManager::CleanupWindows()
+{
+   // Cleanup display classes
+   if(m_ifr_display != NULL)
+   {
+      m_ifr_display.Cleanup();
+      delete m_ifr_display;
+      m_ifr_display = NULL;
+   }
+   
+   if(m_trix_display != NULL)
+   {
+      m_trix_display.Cleanup();
+      delete m_trix_display;
+      m_trix_display = NULL;
+   }
+   
+   if(m_stoch_display != NULL)
+   {
+      m_stoch_display.Cleanup();
+      delete m_stoch_display;
+      m_stoch_display = NULL;
+   }
+   
+   if(m_didi_display != NULL)
+   {
+      m_didi_display.Cleanup();
+      delete m_didi_display;
+      m_didi_display = NULL;
+   }
+   
+   if(m_dmi_display != NULL)
+   {
+      m_dmi_display.Cleanup();
+      delete m_dmi_display;
+      m_dmi_display = NULL;
+   }
+   
+   if(m_main_display != NULL)
+   {
+      m_main_display.Cleanup();
+      delete m_main_display;
+      m_main_display = NULL;
+   }
+   
+   // Cleanup window manager
+   if(m_window_manager != NULL)
+   {
+      m_window_manager.Cleanup();
+      delete m_window_manager;
+      m_window_manager = NULL;
+   }
+   
+   // Reset window indices
+   m_dmi_window_index = -1;
+   m_didi_window_index = -1;
+   m_stoch_window_index = -1;
+   m_trix_window_index = -1;
+   m_ifr_window_index = -1;
+   
+   Print("GraphicManager: Window cleanup completed");
+}
+
+//+------------------------------------------------------------------+
+//| Update all indicator displays with current data                  |
+//+------------------------------------------------------------------+
+void CGraphicManager::UpdateAllDisplays(CDmi &dmi, CDidiIndex &didi, CBollingerBands &bb, 
+                                       CStochastic &stoch, CTrix &trix, CIfr &ifr)
+{
+   datetime current_time = TimeCurrent();
+   
+   // Update DMI display
+   if(m_dmi_display != NULL)
+   {
+      double adx_value = dmi.GetADX(0);
+      double plus_di = dmi.GetPlusDI(0);
+      double minus_di = dmi.GetMinusDI(0);
+      m_dmi_display.UpdateDisplay(adx_value, plus_di, minus_di, current_time, 0);
+   }
+   
+   // Update Didi display
+   if(m_didi_display != NULL)
+   {
+      double short_ma = didi.GetShortMA(0);
+      double medium_ma = didi.GetMediumMA(0);
+      double long_ma = didi.GetLongMA(0);
+      m_didi_display.UpdateDisplay(short_ma, medium_ma, long_ma, current_time, 0);
+   }
+   
+   // Update Stochastic display
+   if(m_stoch_display != NULL)
+   {
+      double main_value = stoch.GetMain(0);
+      double signal_value = stoch.GetSignal(0);
+      m_stoch_display.UpdateDisplay(main_value, signal_value, current_time, 0);
+   }
+   
+   // Update TRIX display
+   if(m_trix_display != NULL)
+   {
+      double trix_value = trix.GetTrix(0);
+      double trix_signal = trix.GetSignal(0);
+      m_trix_display.UpdateDisplay(trix_value, trix_signal, current_time, 0);
+   }
+   
+   // Update IFR display
+   if(m_ifr_display != NULL)
+   {
+      double ifr_value = ifr.GetIfr(0);
+      m_ifr_display.UpdateDisplay(ifr_value, current_time, 0);
+   }
+   
+   // Update main chart display with signals
+   if(m_main_display != NULL)
+   {
+      // This will be enhanced based on signal coordination needs
+      m_main_display.UpdateDisplay();
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Update window displays for specific bar time and shift           |
+//+------------------------------------------------------------------+
+void CGraphicManager::UpdateWindowDisplays(const datetime bar_time, const int bar_shift = 0)
+{
+   // Force chart redraw to ensure all windows are updated
+   if(m_window_manager != NULL)
+   {
+      ChartRedraw(m_window_manager.GetChartId());
+   }
+   
+   Print("GraphicManager: Window displays updated for bar time: ", TimeToString(bar_time));
 }

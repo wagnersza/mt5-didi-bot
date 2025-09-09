@@ -1,7 +1,7 @@
 ---
 description: Break down the plan into executable tasks. This is the third step in the Spec-Driven Development lifecycle.
 mode: agent
-tools: ['codebase', 'search']
+tools: ['codebase', 'usages', 'vscodeAPI', 'think', 'problems', 'changes', 'testFailure', 'terminalSelection', 'terminalLastCommand', 'openSimpleBrowser', 'fetch', 'findTestFiles', 'searchResults', 'githubRepo', 'extensions', 'editFiles', 'runNotebooks', 'search', 'new', 'runCommands', 'runTasks', 'context7', 'sequentialthinking']
 ---
 
 # Create Implementation Tasks - Spec-Driven Development Step 3

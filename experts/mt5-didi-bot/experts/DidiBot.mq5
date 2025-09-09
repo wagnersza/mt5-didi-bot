@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2023, MetaQuotes Software Corp."
 #property link      "https://www.mql5.com"
-#property version   "1.02"
+#property version   "1.03"
 
 //--- Stop Loss Configuration Enumerations
 enum ENUM_STOP_TYPE
@@ -89,6 +89,23 @@ int OnInit()
      
 //--- Initialize graphic manager
    g_graphic_manager.Init("DidiBot_");
+   
+//--- Initialize multi-window display system
+   Print("OnInit: Initializing multi-window display system...");
+   if(!g_graphic_manager.InitializeWindows(ChartID()))
+     {
+      Print("OnInit: Failed to initialize window management system!");
+      return(INIT_FAILED);
+     }
+   
+//--- Create indicator windows and assign indicators to windows
+   if(!g_graphic_manager.CreateIndicatorWindows(g_dmi, g_didi, g_stoch, g_trix, g_ifr))
+     {
+      Print("OnInit: Failed to create indicator windows!");
+      return(INIT_FAILED);
+     }
+   
+   Print("OnInit: Multi-window display system initialized successfully.");
    g_graphic_manager.UpdateTradingStatus("INITIALIZED");
    
 //--- Configure stop loss settings from input parameters
@@ -126,8 +143,16 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
+   Print("OnDeinit: DidiBot deinitialization started. Reason: ", reason);
+   
+//--- Cleanup multi-window display system
+   Print("OnDeinit: Cleaning up multi-window display system...");
+   g_graphic_manager.CleanupWindows();
+   
+//--- Clear all graphic objects
    g_graphic_manager.ClearAll();
-   Print("OnDeinit: DidiBot deinitialized. Reason: ", reason);
+   
+   Print("OnDeinit: DidiBot deinitialized successfully.");
   }
 //+------------------------------------------------------------------+
 //| Expert tick function                                             |
@@ -152,6 +177,11 @@ void OnTick()
 
 //--- Update graphic indicators with current values including stop loss info
       g_graphic_manager.UpdateSignalPanelWithStops(g_dmi, g_didi, g_bb, g_stoch, g_trix, g_ifr, g_atr, g_risk_manager, g_trade_manager);
+      
+//--- Update all indicator window displays with latest data
+      g_graphic_manager.UpdateAllDisplays(g_dmi, g_didi, g_bb, g_stoch, g_trix, g_ifr);
+      g_graphic_manager.UpdateWindowDisplays(current_bar_time, 0);
+      
       g_graphic_manager.UpdateTradingStatus("ANALYZING");
 
 //--- Read chart objects

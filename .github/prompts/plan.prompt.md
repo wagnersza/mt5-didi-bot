@@ -1,7 +1,7 @@
 ---
 description: Plan how to implement the specified feature. This is the second step in the Spec-Driven Development lifecycle.
 mode: agent
-tools: ['codebase', 'search', 'fetch']
+tools: ['codebase', 'usages', 'vscodeAPI', 'think', 'problems', 'changes', 'testFailure', 'terminalSelection', 'terminalLastCommand', 'openSimpleBrowser', 'fetch', 'findTestFiles', 'searchResults', 'githubRepo', 'extensions', 'editFiles', 'runNotebooks', 'search', 'new', 'runCommands', 'runTasks', 'context7', 'sequentialthinking']
 ---
 
 # Plan Feature Implementation - Spec-Driven Development Step 2

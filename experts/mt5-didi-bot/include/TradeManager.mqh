@@ -10,7 +10,7 @@
 #include "SignalEngine.mqh"
 
 //--- Forward declarations
-class CGraphicManager;
+class CGraphicManager;  // Multi-window graphics manager for signal display
 class CRiskManager;
 
 //--- Active Stop Loss Tracking Structure
@@ -33,7 +33,7 @@ class CTradeManager
 protected:
    CTrade            m_trade;            // Trade object
    long              m_magic_number;     // Magic number for trades
-   CGraphicManager   *m_graphic_mgr;     // Reference to graphic manager
+   CGraphicManager   *m_graphic_mgr;     // Reference to multi-window graphic manager
    ActiveStopLoss    m_active_stops[];   // Array of active stop losses
 
 public:
@@ -103,7 +103,7 @@ void CTradeManager::SetMagicNumber(long magic)
    m_trade.SetExpertMagicNumber(m_magic_number);
   }
 //+------------------------------------------------------------------+
-//| Sets the graphic manager reference.                              |
+//| Sets the graphic manager reference for multi-window display.     |
 //+------------------------------------------------------------------+
 void CTradeManager::SetGraphicManager(CGraphicManager *graphic_mgr)
   {

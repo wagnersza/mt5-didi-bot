@@ -26,6 +26,12 @@ public:
    double            Adx(int shift);
    double            PlusDi(int shift);
    double            MinusDi(int shift);
+   int               GetHandle() const { return m_handle; }
+   
+   // Getter methods for multi-window display compatibility
+   double            GetADX(int shift) const { return const_cast<CDmi*>(this).Adx(shift); }
+   double            GetPlusDI(int shift) const { return const_cast<CDmi*>(this).PlusDi(shift); }
+   double            GetMinusDI(int shift) const { return const_cast<CDmi*>(this).MinusDi(shift); }
 };
 //+------------------------------------------------------------------+
 //| Constructor                                                      |
@@ -106,6 +112,12 @@ public:
 
    bool Init(string symbol, ENUM_TIMEFRAMES period, int short_period, int medium_period, int long_period);
    bool IsAgulhada(int shift);
+   
+   // Individual MA value getters
+   double GetShortMA(int shift);
+   double GetMediumMA(int shift);
+   double GetLongMA(int shift);
+   int GetHandle() const { return m_short_ma_handle; } // Return first handle for window creation
 };
 //+------------------------------------------------------------------+
 //| Constructor                                                      |
@@ -188,6 +200,36 @@ bool CDidiIndex::IsAgulhada(int shift)
 }
 
 //+------------------------------------------------------------------+
+//| Returns the Short MA value for the specified bar.               |
+//+------------------------------------------------------------------+
+double CDidiIndex::GetShortMA(int shift)
+{
+   if(CopyBuffer(m_short_ma_handle, 0, shift, 1, m_short_ma_buffer) > 0)
+      return m_short_ma_buffer[0];
+   return 0.0;
+}
+
+//+------------------------------------------------------------------+
+//| Returns the Medium MA value for the specified bar.              |
+//+------------------------------------------------------------------+
+double CDidiIndex::GetMediumMA(int shift)
+{
+   if(CopyBuffer(m_medium_ma_handle, 0, shift, 1, m_medium_ma_buffer) > 0)
+      return m_medium_ma_buffer[0];
+   return 0.0;
+}
+
+//+------------------------------------------------------------------+
+//| Returns the Long MA value for the specified bar.                |
+//+------------------------------------------------------------------+
+double CDidiIndex::GetLongMA(int shift)
+{
+   if(CopyBuffer(m_long_ma_handle, 0, shift, 1, m_long_ma_buffer) > 0)
+      return m_long_ma_buffer[0];
+   return 0.0;
+}
+
+//+------------------------------------------------------------------+
 //| Class for the Bollinger Bands indicator.                         |
 //+------------------------------------------------------------------+
 class CBollingerBands
@@ -206,6 +248,7 @@ public:
    double UpperBand(int shift);
    double MiddleBand(int shift);
    double LowerBand(int shift);
+   int GetHandle() const { return m_handle; }
 };
 //+------------------------------------------------------------------+
 //| Constructor                                                      |
@@ -284,6 +327,11 @@ public:
    bool Init(string symbol, ENUM_TIMEFRAMES period, int k_period, int d_period, int slowing);
    double Main(int shift);
    double Signal(int shift);
+   int GetHandle() const { return m_handle; }
+   
+   // Getter methods for multi-window display compatibility
+   double GetMain(int shift) const { return const_cast<CStochastic*>(this)->Main(shift); }
+   double GetSignal(int shift) const { return const_cast<CStochastic*>(this)->Signal(shift); }
 };
 //+------------------------------------------------------------------+
 //| Constructor                                                      |
@@ -359,6 +407,11 @@ public:
    bool Init(string symbol, ENUM_TIMEFRAMES period, int trix_period);
    double Main(int shift);
    bool CalculateTrix(int shift);
+   int GetHandle() const { return m_ema1_handle; } // Return first handle for window creation
+   
+   // Getter methods for multi-window display compatibility
+   double GetTrix(int shift) const { return const_cast<CTrix*>(this)->Main(shift); }
+   double GetSignal(int shift) const { return 0.0; } // TRIX typically doesn't have a signal line
 };
 //+------------------------------------------------------------------+
 //| Constructor                                                      |
@@ -491,6 +544,10 @@ public:
 
    bool Init(string symbol, ENUM_TIMEFRAMES period, int rsi_period);
    double Main(int shift);
+   int GetHandle() const { return m_handle; }
+   
+   // Getter methods for multi-window display compatibility
+   double GetIfr(int shift) const { return const_cast<CIfr*>(this)->Main(shift); }
 };
 //+------------------------------------------------------------------+
 //| Constructor                                                      |

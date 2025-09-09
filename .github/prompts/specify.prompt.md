@@ -1,7 +1,7 @@
 ---
 description: Start a new feature by creating a specification and feature branch. This is the first step in the Spec-Driven Development lifecycle.
 mode: agent
-tools: ['codebase', 'search']
+tools: ['codebase', 'usages', 'vscodeAPI', 'think', 'problems', 'changes', 'testFailure', 'terminalSelection', 'terminalLastCommand', 'openSimpleBrowser', 'fetch', 'findTestFiles', 'searchResults', 'githubRepo', 'extensions', 'editFiles', 'runNotebooks', 'search', 'new', 'runCommands', 'runTasks', 'context7', 'sequentialthinking']
 ---
 
 # Specify Feature - Spec-Driven Development Step 1
