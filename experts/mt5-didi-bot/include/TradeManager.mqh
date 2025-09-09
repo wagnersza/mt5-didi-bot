@@ -12,15 +12,28 @@
 //--- Forward declaration
 class CGraphicManager;
 
+//--- Active Stop Loss Tracking Structure
+struct ActiveStopLoss
+  {
+   ulong             ticket;             // Trade ticket number
+   double            original_distance;  // Initial stop distance in pips
+   double            current_level;      // Current stop loss level
+   datetime          last_trail_time;    // Last trailing adjustment time
+   bool              is_trailing;        // Trailing status
+   double            entry_price;        // Original entry price
+   ENUM_ORDER_TYPE   order_type;         // Buy or sell order type
+  };
+
 //+------------------------------------------------------------------+
 //| Class for managing trades.                                       |
 //+------------------------------------------------------------------+
 class CTradeManager
   {
 protected:
-   CTrade            m_trade;          // Trade object
-   long              m_magic_number;   // Magic number for trades
-   CGraphicManager   *m_graphic_mgr;   // Reference to graphic manager
+   CTrade            m_trade;            // Trade object
+   long              m_magic_number;     // Magic number for trades
+   CGraphicManager   *m_graphic_mgr;     // Reference to graphic manager
+   ActiveStopLoss    m_active_stops[];   // Array of active stop losses
 
 public:
                      CTradeManager();
@@ -30,6 +43,15 @@ public:
    void              CheckForEntry(CDmi &dmi,CDidiIndex &didi,CBollingerBands &bb);
    void              CheckForExit(CDmi &dmi,CStochastic &stoch,CTrix &trix,CBollingerBands &bb);
    void              ReadChartObjects();
+   
+   // Active Stop Loss Management Methods
+   bool              AddActiveStopLoss(ulong ticket, double original_distance, double current_level, 
+                                      double entry_price, ENUM_ORDER_TYPE order_type);
+   bool              RemoveActiveStopLoss(ulong ticket);
+   bool              UpdateActiveStopLoss(ulong ticket, double new_level, datetime trail_time);
+   ActiveStopLoss*   GetActiveStopLoss(ulong ticket);
+   int               GetActiveStopLossCount();
+   void              CleanupClosedTrades();
   };
 //+------------------------------------------------------------------+
 //| Constructor                                                      |
@@ -220,4 +242,124 @@ void CTradeManager::ReadChartObjects()
         }
      }
    Print("ReadChartObjects: Finished reading chart objects.");
+  }
+//+------------------------------------------------------------------+
+//| Adds a new active stop loss to tracking.                         |
+//+------------------------------------------------------------------+
+bool CTradeManager::AddActiveStopLoss(ulong ticket, double original_distance, double current_level, 
+                                     double entry_price, ENUM_ORDER_TYPE order_type)
+  {
+   // Check if already exists
+   for(int i = 0; i < ArraySize(m_active_stops); i++)
+     {
+      if(m_active_stops[i].ticket == ticket)
+        {
+         PrintFormat("AddActiveStopLoss: Stop loss for ticket %I64u already exists", ticket);
+         return false;
+        }
+     }
+   
+   // Resize array and add new stop loss
+   int new_size = ArraySize(m_active_stops) + 1;
+   ArrayResize(m_active_stops, new_size);
+   
+   int index = new_size - 1;
+   m_active_stops[index].ticket = ticket;
+   m_active_stops[index].original_distance = original_distance;
+   m_active_stops[index].current_level = current_level;
+   m_active_stops[index].last_trail_time = TimeCurrent();
+   m_active_stops[index].is_trailing = false;
+   m_active_stops[index].entry_price = entry_price;
+   m_active_stops[index].order_type = order_type;
+   
+   PrintFormat("AddActiveStopLoss: Added stop loss tracking for ticket %I64u at level %.5f", 
+               ticket, current_level);
+   return true;
+  }
+//+------------------------------------------------------------------+
+//| Removes active stop loss from tracking.                          |
+//+------------------------------------------------------------------+
+bool CTradeManager::RemoveActiveStopLoss(ulong ticket)
+  {
+   for(int i = 0; i < ArraySize(m_active_stops); i++)
+     {
+      if(m_active_stops[i].ticket == ticket)
+        {
+         // Shift remaining elements
+         for(int j = i; j < ArraySize(m_active_stops) - 1; j++)
+           {
+            m_active_stops[j] = m_active_stops[j + 1];
+           }
+         
+         // Resize array
+         ArrayResize(m_active_stops, ArraySize(m_active_stops) - 1);
+         
+         PrintFormat("RemoveActiveStopLoss: Removed stop loss tracking for ticket %I64u", ticket);
+         return true;
+        }
+     }
+   
+   PrintFormat("RemoveActiveStopLoss: Stop loss for ticket %I64u not found", ticket);
+   return false;
+  }
+//+------------------------------------------------------------------+
+//| Updates active stop loss information.                            |
+//+------------------------------------------------------------------+
+bool CTradeManager::UpdateActiveStopLoss(ulong ticket, double new_level, datetime trail_time)
+  {
+   for(int i = 0; i < ArraySize(m_active_stops); i++)
+     {
+      if(m_active_stops[i].ticket == ticket)
+        {
+         m_active_stops[i].current_level = new_level;
+         m_active_stops[i].last_trail_time = trail_time;
+         m_active_stops[i].is_trailing = true;
+         
+         PrintFormat("UpdateActiveStopLoss: Updated stop loss for ticket %I64u to level %.5f", 
+                     ticket, new_level);
+         return true;
+        }
+     }
+   
+   PrintFormat("UpdateActiveStopLoss: Stop loss for ticket %I64u not found", ticket);
+   return false;
+  }
+//+------------------------------------------------------------------+
+//| Gets active stop loss by ticket number.                          |
+//+------------------------------------------------------------------+
+ActiveStopLoss* CTradeManager::GetActiveStopLoss(ulong ticket)
+  {
+   for(int i = 0; i < ArraySize(m_active_stops); i++)
+     {
+      if(m_active_stops[i].ticket == ticket)
+        {
+         return &m_active_stops[i];
+        }
+     }
+   
+   return NULL;
+  }
+//+------------------------------------------------------------------+
+//| Gets count of active stop losses.                                |
+//+------------------------------------------------------------------+
+int CTradeManager::GetActiveStopLossCount()
+  {
+   return ArraySize(m_active_stops);
+  }
+//+------------------------------------------------------------------+
+//| Cleans up stop losses for closed trades.                         |
+//+------------------------------------------------------------------+
+void CTradeManager::CleanupClosedTrades()
+  {
+   for(int i = ArraySize(m_active_stops) - 1; i >= 0; i--)
+     {
+      ulong ticket = m_active_stops[i].ticket;
+      
+      // Check if position still exists
+      if(!PositionSelectByTicket(ticket))
+        {
+         PrintFormat("CleanupClosedTrades: Removing closed trade %I64u from stop loss tracking", ticket);
+         RemoveActiveStopLoss(ticket);
+        }
+     }
   }

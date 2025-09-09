@@ -7,6 +7,24 @@
 #property link      "https://www.mql5.com"
 #property version   "1.01"
 
+//--- Stop Loss Configuration Enumerations
+enum ENUM_STOP_TYPE
+  {
+   ATR_BASED,    // ATR-based stop loss
+   FIXED_PIPS    // Fixed pip stop loss
+  };
+
+//--- Input Parameters for Stop Loss Configuration
+input group "=== Stop Loss Configuration ==="
+input ENUM_STOP_TYPE InpStopType = ATR_BASED;           // Stop Loss Type
+input double InpATRMultiplier = 1.5;                    // ATR Multiplier (0.5-5.0)
+input int InpFixedPips = 50;                            // Fixed Pips Stop Loss
+input bool InpTrailingEnabled = true;                   // Enable Trailing Stop
+input int InpMaxStopPips = 100;                         // Maximum Stop Loss (pips)
+input int InpStopLimitSlippage = 3;                     // Stop Limit Slippage (pips)
+input int InpATRPeriod = 14;                            // ATR Period for calculation
+input int InpMinStopDistance = 10;                      // Minimum Stop Distance (pips)
+
 #include "../include/SignalEngine.mqh"
 #include "../include/TradeManager.mqh"
 #include "../include/RiskManager.mqh"
@@ -21,6 +39,7 @@ CTrix g_trix;
 CIfr g_ifr;
 CTradeManager g_trade_manager;
 CGraphicManager g_graphic_manager;
+CRiskManager g_risk_manager;
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -64,6 +83,23 @@ int OnInit()
    g_graphic_manager.Init("DidiBot_");
    g_graphic_manager.UpdateTradingStatus("INITIALIZED");
    
+//--- Configure stop loss settings from input parameters
+   StopLossConfig config;
+   config.type = InpStopType;
+   config.atr_multiplier = InpATRMultiplier;
+   config.fixed_pips = InpFixedPips;
+   config.trailing_enabled = InpTrailingEnabled;
+   config.max_stop_pips = InpMaxStopPips;
+   config.stop_limit_slippage = InpStopLimitSlippage;
+   config.atr_period = InpATRPeriod;
+   config.min_stop_distance = InpMinStopDistance;
+   
+   g_risk_manager.SetStopLossConfig(config);
+   PrintFormat("OnInit: Stop loss configuration applied - Type: %s, ATR Mult: %.2f, Trailing: %s",
+               (InpStopType == ATR_BASED) ? "ATR_BASED" : "FIXED_PIPS",
+               InpATRMultiplier,
+               InpTrailingEnabled ? "ENABLED" : "DISABLED");
+
 //--- Connect trade manager with graphic manager
    g_trade_manager.SetGraphicManager(&g_graphic_manager);
    
