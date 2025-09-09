@@ -55,6 +55,7 @@ bool CDmi::Init(string symbol, ENUM_TIMEFRAMES period, int adx_period)
    ArraySetAsSeries(m_adx_buffer, true);
    ArraySetAsSeries(m_plus_di_buffer, true);
    ArraySetAsSeries(m_minus_di_buffer, true);
+   PrintFormat("DMI initialized for %s, Period %s, ADX Period %d", symbol, EnumToString(period), adx_period);
    return(true);
 }
 //+------------------------------------------------------------------+
@@ -142,7 +143,7 @@ bool CDidiIndex::Init(string symbol, ENUM_TIMEFRAMES period, int short_period, i
    ArraySetAsSeries(m_short_ma_buffer, true);
    ArraySetAsSeries(m_medium_ma_buffer, true);
    ArraySetAsSeries(m_long_ma_buffer, true);
-
+   PrintFormat("Didi Index initialized for %s, Period %s, Short %d, Medium %d, Long %d", symbol, EnumToString(period), short_period, medium_period, long_period);
    return true;
 }
 //+------------------------------------------------------------------+
@@ -154,6 +155,7 @@ bool CDidiIndex::IsAgulhada(int shift)
       CopyBuffer(m_medium_ma_handle, 0, shift, 2, m_medium_ma_buffer) < 2 ||
       CopyBuffer(m_long_ma_handle, 0, shift, 2, m_long_ma_buffer) < 2)
    {
+      Print("IsAgulhada: Not enough bars to check.");
       return false;
    }
 
@@ -169,8 +171,17 @@ bool CDidiIndex::IsAgulhada(int shift)
       if(MathAbs(m_short_ma_buffer[0] - m_medium_ma_buffer[0]) < max_diff &&
          MathAbs(m_short_ma_buffer[0] - m_long_ma_buffer[0]) < max_diff)
       {
+         PrintFormat("IsAgulhada: Agulhada detected! Short: %.5f, Medium: %.5f, Long: %.5f", m_short_ma_buffer[0], m_medium_ma_buffer[0], m_long_ma_buffer[0]);
          return true;
       }
+      else
+      {
+         PrintFormat("IsAgulhada: Cross detected, but MAs not close enough. Short: %.5f, Medium: %.5f, Long: %.5f", m_short_ma_buffer[0], m_medium_ma_buffer[0], m_long_ma_buffer[0]);
+      }
+   }
+   else
+   {
+      Print("IsAgulhada: No cross detected.");
    }
 
    return false;
@@ -225,7 +236,7 @@ bool CBollingerBands::Init(string symbol, ENUM_TIMEFRAMES period, int bb_period,
    ArraySetAsSeries(m_upper_band_buffer, true);
    ArraySetAsSeries(m_middle_band_buffer, true);
    ArraySetAsSeries(m_lower_band_buffer, true);
-
+   PrintFormat("Bollinger Bands initialized for %s, Period %s, BB Period %d, Deviation %.2f", symbol, EnumToString(period), bb_period, bb_deviation);
    return true;
 }
 //+------------------------------------------------------------------+
@@ -302,7 +313,7 @@ bool CStochastic::Init(string symbol, ENUM_TIMEFRAMES period, int k_period, int 
 
    ArraySetAsSeries(m_main_buffer, true);
    ArraySetAsSeries(m_signal_buffer, true);
-
+   PrintFormat("Stochastic initialized for %s, Period %s, K Period %d, D Period %d, Slowing %d", symbol, EnumToString(period), k_period, d_period, slowing);
    return true;
 }
 //+------------------------------------------------------------------+
@@ -367,7 +378,7 @@ bool CTrix::Init(string symbol, ENUM_TIMEFRAMES period, int trix_period)
    }
 
    ArraySetAsSeries(m_main_buffer, true);
-
+   PrintFormat("Trix initialized for %s, Period %s, Trix Period %d", symbol, EnumToString(period), trix_period);
    return true;
 }
 //+------------------------------------------------------------------+
@@ -423,7 +434,7 @@ bool CIfr::Init(string symbol, ENUM_TIMEFRAMES period, int rsi_period)
    }
 
    ArraySetAsSeries(m_main_buffer, true);
-
+   PrintFormat("IFR (RSI) initialized for %s, Period %s, RSI Period %d", symbol, EnumToString(period), rsi_period);
    return true;
 }
 //+------------------------------------------------------------------+

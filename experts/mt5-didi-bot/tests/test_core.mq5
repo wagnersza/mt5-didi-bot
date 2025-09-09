@@ -62,6 +62,6 @@ void TestCheckForExit()
      }
    else
      {
-      Print("TestCheckForExit: FAILED to initialize indicators");
+      Print("TestCheckForEntry: FAILED to initialize indicators");
      }
   }

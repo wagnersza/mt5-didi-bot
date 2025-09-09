@@ -42,18 +42,19 @@ CRiskManager::~CRiskManager()
 void CRiskManager::SetRiskPercent(double risk)
   {
    m_risk_percent=risk;
+   PrintFormat("RiskManager: Risk percentage set to %.2f%%", m_risk_percent);
   }
 //+------------------------------------------------------------------+
 //| Calculates the lot size based on risk percentage and stop loss.  |
 //+------------------------------------------------------------------+
 double CRiskManager::CalculateLotSize(double stop_loss_pips)
   {
-   double lot_size=0.0;
    if(stop_loss_pips<=0)
      {
-      Print("Invalid stop loss pips value");
+      Print("RiskManager: Invalid stop loss pips value for lot size calculation.");
       return 0.0;
      }
+   double lot_size=0.0;
    double account_balance=m_account_info.Balance();
    double risk_amount=account_balance*(m_risk_percent/100.0);
    double tick_value=SymbolInfoDouble(_Symbol,SYMBOL_TRADE_TICK_VALUE);
@@ -63,6 +64,11 @@ double CRiskManager::CalculateLotSize(double stop_loss_pips)
    if(pips_per_lot>0)
      {
       lot_size=risk_amount/(stop_loss_pips*pips_per_lot);
+      PrintFormat("RiskManager: Calculated lot size: %.2f for %.2f pips SL", lot_size, stop_loss_pips);
+     }
+   else
+     {
+      Print("RiskManager: Invalid pips_per_lot for lot size calculation.");
      }
 
    return(lot_size);
@@ -78,10 +84,12 @@ double CRiskManager::CalculateStopLoss(ENUM_ORDER_TYPE order_type,double entry_p
    if(order_type==ORDER_TYPE_BUY)
      {
       stop_loss_price=entry_price-(atr_pips*1.5*SymbolInfoDouble(_Symbol,SYMBOL_POINT));
+      PrintFormat("RiskManager: Calculated BUY SL: %.5f (ATR pips: %.2f)", stop_loss_price, atr_pips);
      }
    else if(order_type==ORDER_TYPE_SELL)
      {
       stop_loss_price=entry_price+(atr_pips*1.5*SymbolInfoDouble(_Symbol,SYMBOL_POINT));
+      PrintFormat("RiskManager: Calculated SELL SL: %.5f (ATR pips: %.2f)", stop_loss_price, atr_pips);
      }
 
    return(stop_loss_price);
