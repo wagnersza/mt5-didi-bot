@@ -9,6 +9,9 @@
 #include <Trade/Trade.mqh>
 #include "SignalEngine.mqh"
 
+//--- Forward declaration
+class CGraphicManager;
+
 //+------------------------------------------------------------------+
 //| Class for managing trades.                                       |
 //+------------------------------------------------------------------+
@@ -17,11 +20,13 @@ class CTradeManager
 protected:
    CTrade            m_trade;          // Trade object
    long              m_magic_number;   // Magic number for trades
+   CGraphicManager   *m_graphic_mgr;   // Reference to graphic manager
 
 public:
                      CTradeManager();
                     ~CTradeManager();
    void              SetMagicNumber(long magic);
+   void              SetGraphicManager(CGraphicManager *graphic_mgr);
    void              CheckForEntry(CDmi &dmi,CDidiIndex &didi,CBollingerBands &bb);
    void              CheckForExit(CDmi &dmi,CStochastic &stoch,CTrix &trix,CBollingerBands &bb);
    void              ReadChartObjects();
@@ -29,7 +34,7 @@ public:
 //+------------------------------------------------------------------+
 //| Constructor                                                      |
 //+------------------------------------------------------------------+
-CTradeManager::CTradeManager():m_magic_number(12345)
+CTradeManager::CTradeManager():m_magic_number(12345), m_graphic_mgr(NULL)
   {
    m_trade.SetExpertMagicNumber(m_magic_number);
    m_trade.SetTypeFilling(ORDER_FILLING_FOK);
@@ -47,6 +52,13 @@ void CTradeManager::SetMagicNumber(long magic)
   {
    m_magic_number=magic;
    m_trade.SetExpertMagicNumber(m_magic_number);
+  }
+//+------------------------------------------------------------------+
+//| Sets the graphic manager reference.                              |
+//+------------------------------------------------------------------+
+void CTradeManager::SetGraphicManager(CGraphicManager *graphic_mgr)
+  {
+   m_graphic_mgr = graphic_mgr;
   }
 //+------------------------------------------------------------------+
 //| Checks for trade entry signals.                                  |
@@ -68,6 +80,14 @@ void CTradeManager::CheckForEntry(CDmi &dmi,CDidiIndex &didi,CBollingerBands &bb
         {
          Print("CheckForEntry: Buy signal confirmed. Attempting to open BUY position.");
          double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+         
+         // Draw entry signal on chart
+         if(m_graphic_mgr != NULL)
+         {
+            string reason = "DMI: +DI>-DI, Didi: Agulhada, BB: Upper>Middle";
+            m_graphic_mgr.DrawEntrySignal(TimeCurrent(), ask, true, reason);
+         }
+         
          if(m_trade.Buy(0.1, _Symbol, ask, 0, 0, "Buy Signal"))
            {
             PrintFormat("CheckForEntry: BUY order sent successfully. Order: %I64u", m_trade.ResultOrder());
@@ -82,6 +102,14 @@ void CTradeManager::CheckForEntry(CDmi &dmi,CDidiIndex &didi,CBollingerBands &bb
         {
          Print("CheckForEntry: Sell signal confirmed. Attempting to open SELL position.");
          double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+         
+         // Draw entry signal on chart
+         if(m_graphic_mgr != NULL)
+         {
+            string reason = "DMI: -DI>+DI, Didi: Agulhada, BB: Lower<Middle";
+            m_graphic_mgr.DrawEntrySignal(TimeCurrent(), bid, false, reason);
+         }
+         
          if(m_trade.Sell(0.1, _Symbol, bid, 0, 0, "Sell Signal"))
            {
             PrintFormat("CheckForEntry: SELL order sent successfully. Order: %I64u", m_trade.ResultOrder());
@@ -127,6 +155,15 @@ void CTradeManager::CheckForExit(CDmi &dmi,CStochastic &stoch,CTrix &trix,CBolli
             if(PositionGetInteger(POSITION_TYPE)==POSITION_TYPE_BUY && close_buy_signal)
               {
                PrintFormat("CheckForExit: Buy exit signal confirmed for position #%I64u. Attempting to close.", ticket);
+               
+               // Draw exit signal on chart
+               if(m_graphic_mgr != NULL)
+               {
+                  double exit_price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+                  string reason = "ADX<32, Stoch Cross Down, TRIX<0, BB Squeeze";
+                  m_graphic_mgr.DrawExitSignal(TimeCurrent(), exit_price, true, reason);
+               }
+               
                if(m_trade.PositionClose(ticket))
                  {
                   PrintFormat("CheckForExit: Position #%I64u closed successfully.", ticket);
@@ -139,6 +176,15 @@ void CTradeManager::CheckForExit(CDmi &dmi,CStochastic &stoch,CTrix &trix,CBolli
             else if(PositionGetInteger(POSITION_TYPE)==POSITION_TYPE_SELL && close_sell_signal)
               {
                PrintFormat("CheckForExit: Sell exit signal confirmed for position #%I64u. Attempting to close.", ticket);
+               
+               // Draw exit signal on chart
+               if(m_graphic_mgr != NULL)
+               {
+                  double exit_price = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+                  string reason = "ADX<32, Stoch Cross Up, TRIX>0, BB Squeeze";
+                  m_graphic_mgr.DrawExitSignal(TimeCurrent(), exit_price, false, reason);
+               }
+               
                if(m_trade.PositionClose(ticket))
                  {
                   PrintFormat("CheckForExit: Position #%I64u closed successfully.", ticket);

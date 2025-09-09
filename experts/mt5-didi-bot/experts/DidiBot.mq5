@@ -5,11 +5,12 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2023, MetaQuotes Software Corp."
 #property link      "https://www.mql5.com"
-#property version   "1.00"
+#property version   "1.01"
 
 #include "../include/SignalEngine.mqh"
 #include "../include/TradeManager.mqh"
 #include "../include/RiskManager.mqh"
+#include "../include/GraphicManager.mqh"
 
 //--- Indicator instances
 CDmi g_dmi;
@@ -19,6 +20,7 @@ CStochastic g_stoch;
 CTrix g_trix;
 CIfr g_ifr;
 CTradeManager g_trade_manager;
+CGraphicManager g_graphic_manager;
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -57,6 +59,14 @@ int OnInit()
       Print("OnInit: IFR initialization failed!");
       return(INIT_FAILED);
      }
+     
+//--- Initialize graphic manager
+   g_graphic_manager.Init("DidiBot_");
+   g_graphic_manager.UpdateTradingStatus("INITIALIZED");
+   
+//--- Connect trade manager with graphic manager
+   g_trade_manager.SetGraphicManager(&g_graphic_manager);
+   
    Print("OnInit: DidiBot initialized successfully.");
    return(INIT_SUCCEEDED);
   }
@@ -65,6 +75,7 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
+   g_graphic_manager.ClearAll();
    Print("OnDeinit: DidiBot deinitialized. Reason: ", reason);
   }
 //+------------------------------------------------------------------+
@@ -88,6 +99,10 @@ void OnTick()
       prev_bar_time=current_bar_time;
       Print("OnTick: New bar detected. Time: ", TimeToString(current_bar_time));
 
+//--- Update graphic indicators with current values
+      g_graphic_manager.UpdateSignalPanel(g_dmi, g_didi, g_bb, g_stoch, g_trix, g_ifr);
+      g_graphic_manager.UpdateTradingStatus("ANALYZING");
+
 //--- Read chart objects
       g_trade_manager.ReadChartObjects();
 
@@ -96,6 +111,8 @@ void OnTick()
       g_trade_manager.CheckForEntry(g_dmi,g_didi,g_bb);
       Print("OnTick: Checking for exit signals...");
       g_trade_manager.CheckForExit(g_dmi,g_stoch,g_trix,g_bb);
+      
+      g_graphic_manager.UpdateTradingStatus("READY");
      }
   }
 //+------------------------------------------------------------------+
