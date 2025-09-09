@@ -8,12 +8,7 @@
 
 #include <Trade/AccountInfo.mqh>
 
-//--- Stop Loss Configuration Enumerations
-enum ENUM_STOP_TYPE
-  {
-   ATR_BASED,    // ATR-based stop loss
-   FIXED_PIPS    // Fixed pip stop loss
-  };
+//--- Forward declaration (enum is defined in DidiBot.mq5)
 
 //--- Stop Loss Configuration Structure
 struct StopLossConfig

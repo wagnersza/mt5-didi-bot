@@ -115,9 +115,6 @@ int OnInit()
                InpATRMultiplier,
                InpTrailingEnabled ? "ENABLED" : "DISABLED");
 
-//--- Initialize ATR in SignalEngine for stop loss calculations
-   g_risk_manager.SetATRIndicator(&g_atr);
-
 //--- Connect trade manager with graphic manager
    g_trade_manager.SetGraphicManager(&g_graphic_manager);
    

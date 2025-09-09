@@ -51,7 +51,7 @@ public:
                                       double entry_price, ENUM_ORDER_TYPE order_type);
    bool              RemoveActiveStopLoss(ulong ticket);
    bool              UpdateActiveStopLoss(ulong ticket, double new_level, datetime trail_time);
-   ActiveStopLoss*   GetActiveStopLoss(ulong ticket);
+   bool              GetActiveStopLoss(ulong ticket, ActiveStopLoss &stop_loss);
    int               GetActiveStopLossCount();
    void              CleanupClosedTrades();
    
@@ -366,17 +366,18 @@ bool CTradeManager::UpdateActiveStopLoss(ulong ticket, double new_level, datetim
 //+------------------------------------------------------------------+
 //| Gets active stop loss by ticket number.                          |
 //+------------------------------------------------------------------+
-ActiveStopLoss* CTradeManager::GetActiveStopLoss(ulong ticket)
+bool CTradeManager::GetActiveStopLoss(ulong ticket, ActiveStopLoss &stop_loss)
   {
    for(int i = 0; i < ArraySize(m_active_stops); i++)
      {
       if(m_active_stops[i].ticket == ticket)
         {
-         return &m_active_stops[i];
+         stop_loss = m_active_stops[i];
+         return true;
         }
      }
    
-   return NULL;
+   return false;
   }
 //+------------------------------------------------------------------+
 //| Gets count of active stop losses.                                |
@@ -505,32 +506,34 @@ bool CTradeManager::PlaceStopLimitOrder(ulong original_ticket, ENUM_ORDER_TYPE o
       return false;
      }
    
-   // Set trade request
-   m_trade.SetTypeFilling(ORDER_FILLING_RETURN);
+   // Set trade request parameters for stop-limit order
+   MqlTradeRequest request = {};
+   MqlTradeResult result_data = {};
    
-   bool result = false;
-   if(order_type == ORDER_TYPE_BUY_STOP_LIMIT)
+   // Configure the trade request
+   request.action = TRADE_ACTION_PENDING;
+   request.symbol = _Symbol;
+   request.volume = volume;
+   request.type = order_type;
+   request.price = limit_price;
+   request.stoplimit = stop_price;
+   request.magic = m_magic_number;
+   request.comment = StringFormat("StopLimit for %I64u", original_ticket);
+   request.type_time = ORDER_TIME_GTC;
+   request.type_filling = ORDER_FILLING_RETURN;
+   
+   // Send the order
+   bool result = OrderSend(request, result_data);
+   
+   if(result && result_data.retcode == TRADE_RETCODE_DONE)
      {
-      result = m_trade.BuyStopLimit(volume, limit_price, stop_price, 0, 0, ORDER_TIME_GTC, 0, 
-                                   StringFormat("StopLimit for %I64u", original_ticket));
+      PrintFormat("PlaceStopLimitOrder: Stop limit order placed successfully. Ticket: %I64u, Type: %d, Volume: %.2f, Stop: %.5f, Limit: %.5f", 
+                  result_data.order, order_type, volume, stop_price, limit_price);
      }
    else
      {
-      result = m_trade.SellStopLimit(volume, limit_price, stop_price, 0, 0, ORDER_TIME_GTC, 0, 
-                                    StringFormat("StopLimit for %I64u", original_ticket));
-     }
-   
-   // Reset to default filling
-   m_trade.SetTypeFilling(ORDER_FILLING_FOK);
-   
-   if(result)
-     {
-      PrintFormat("PlaceStopLimitOrder: Stop limit order placed successfully. Type: %d, Volume: %.2f, Stop: %.5f, Limit: %.5f", 
-                  order_type, volume, stop_price, limit_price);
-     }
-   else
-     {
-      PrintFormat("PlaceStopLimitOrder: Failed to place stop limit order. Error: %d", GetLastError());
+      PrintFormat("PlaceStopLimitOrder: Failed to place stop limit order. Error: %d, Retcode: %d", 
+                  GetLastError(), result_data.retcode);
      }
    
    return result;
