@@ -136,28 +136,33 @@
 
 ## Phase 3.4: Integration
 
-- [ ] T014 Initialize stop loss system in DidiBot.mq5 OnInit()
+- [x] T014 Initialize stop loss system in DidiBot.mq5 OnInit()
   - Initialize ATR indicator in SignalEngine
   - Load stop loss configuration from input parameters
   - Validate configuration parameters
   - Add initialization error handling
   - Files: `experts/mt5-didi-bot/experts/DidiBot.mq5`
 
-- [ ] T015 Integrate trailing stop checks in DidiBot.mq5 OnTick()
+- [x] T015 Integrate trailing stop checks in DidiBot.mq5 OnTick()
   - Add trailing stop monitoring to main tick processing
   - Implement new bar detection for trailing adjustments
   - Add performance optimization for trailing checks
   - Maintain existing signal processing timing
   - Files: `experts/mt5-didi-bot/experts/DidiBot.mq5`
 
-- [ ] T016 Add stop loss visualization to GraphicManager.mqh
+- [x] T016 Add stop loss visualization to GraphicManager.mqh
   - Add DrawStopLoss() method for chart visualization
   - Add stop loss level lines to chart
   - Add trailing stop indication
   - Update information panel with stop loss data
   - Files: `experts/mt5-didi-bot/include/GraphicManager.mqh`
 
-- [ ] T017 Update existing trade management for stop loss compatibility
+- [x] T017 Update existing trade management for stop loss compatibility
+  - Modify existing trade entry methods to include stop loss
+  - Update trade exit logic to handle stop loss triggers
+  - Add stop loss logging to existing trade logging
+  - Ensure magic number compatibility
+  - Files: `experts/mt5-didi-bot/include/TradeManager.mqh`
   - Modify existing trade entry methods to include stop loss
   - Update trade exit logic to handle stop loss triggers
   - Add stop loss logging to existing trade logging
@@ -166,35 +171,35 @@
 
 ## Phase 3.5: Polish
 
-- [ ] T018 [P] Add comprehensive logging for stop loss operations
+- [x] T018 [P] Add comprehensive logging for stop loss operations
   - Add detailed logging for stop loss calculations
   - Add logging for trailing stop adjustments
   - Add error logging for broker rejections
   - Add performance logging for calculation timing
   - Files: `experts/mt5-didi-bot/include/RiskManager.mqh`, `experts/mt5-didi-bot/include/TradeManager.mqh`
 
-- [ ] T019 [P] Optimize performance for stop loss calculations
+- [x] T019 [P] Optimize performance for stop loss calculations
   - Optimize ATR calculation frequency
   - Implement caching for repeated calculations
   - Optimize trailing stop check frequency
   - Profile and optimize critical path performance
   - Files: `experts/mt5-didi-bot/include/SignalEngine.mqh`, `experts/mt5-didi-bot/include/TradeManager.mqh`
 
-- [ ] T020 [P] Add error recovery for stop loss failures
+- [x] T020 [P] Add error recovery for stop loss failures
   - Implement retry logic for stop modification failures
   - Add fallback strategies for broker rejections
   - Add recovery from network disconnections
   - Add graceful degradation for indicator failures
   - Files: `experts/mt5-didi-bot/include/TradeManager.mqh`
 
-- [ ] T021 [P] Create comprehensive documentation
+- [x] T021 [P] Create comprehensive documentation
   - Document all new stop loss configuration parameters
   - Create user guide for stop loss setup
   - Document troubleshooting for common issues
   - Add code comments for complex calculations
   - Files: `experts/mt5-didi-bot/docs/stop-loss-guide.md`
 
-- [ ] T022 Run comprehensive backtest validation
+- [x] T022 Run comprehensive backtest validation
   - Backtest with different market conditions
   - Validate stop loss performance across timeframes
   - Test with different symbols and volatility levels

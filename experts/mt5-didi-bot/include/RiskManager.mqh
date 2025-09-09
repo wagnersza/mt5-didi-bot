@@ -223,32 +223,40 @@ void CRiskManager::InitializeDefaultConfig()
 //+------------------------------------------------------------------+
 double CRiskManager::CalculateATRStopLoss(double entry_price, double atr_value, double multiplier, ENUM_ORDER_TYPE order_type)
   {
+   datetime start_time = GetTickCount();
+   
    if(entry_price <= 0 || atr_value <= 0 || multiplier <= 0)
      {
-      PrintFormat("RiskManager: Invalid parameters for ATR stop loss. Entry: %.5f, ATR: %.5f, Multiplier: %.2f", 
+      PrintFormat("RiskManager: [ERROR] Invalid parameters for ATR stop loss - Entry: %.5f, ATR: %.5f, Multiplier: %.2f", 
                   entry_price, atr_value, multiplier);
       return 0.0;
      }
    
    double stop_distance = atr_value * multiplier;
    double stop_loss = 0.0;
+   string order_direction = "";
    
    if(order_type == ORDER_TYPE_BUY)
      {
       stop_loss = entry_price - stop_distance;
+      order_direction = "BUY";
      }
    else if(order_type == ORDER_TYPE_SELL)
      {
       stop_loss = entry_price + stop_distance;
+      order_direction = "SELL";
      }
    else
      {
-      PrintFormat("RiskManager: Invalid order type for stop loss calculation: %d", order_type);
+      PrintFormat("RiskManager: [ERROR] Invalid order type for stop loss calculation: %d", order_type);
       return 0.0;
      }
    
-   PrintFormat("RiskManager: ATR Stop Loss calculated - Entry: %.5f, ATR: %.5f, Multiplier: %.2f, Stop: %.5f", 
-               entry_price, atr_value, multiplier, stop_loss);
+   double distance_pips = stop_distance / (_Point * ((_Digits == 5 || _Digits == 3) ? 10 : 1));
+   datetime calc_time = GetTickCount() - start_time;
+   
+   PrintFormat("RiskManager: [INFO] ATR Stop Loss calculated (%s) - Entry: %.5f, ATR: %.5f, Mult: %.2f, Stop: %.5f, Distance: %.1f pips, CalcTime: %dms", 
+               order_direction, entry_price, atr_value, multiplier, stop_loss, distance_pips, calc_time);
    
    return stop_loss;
   }
@@ -256,11 +264,16 @@ double CRiskManager::CalculateATRStopLoss(double entry_price, double atr_value, 
 //+------------------------------------------------------------------+
 //| Calculate fixed pip stop loss                                   |
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| Calculate fixed pip stop loss                                   |
+//+------------------------------------------------------------------+
 double CRiskManager::CalculateFixedPipStopLoss(double entry_price, int fixed_pips, ENUM_ORDER_TYPE order_type)
   {
+   datetime start_time = GetTickCount();
+   
    if(entry_price <= 0 || fixed_pips <= 0)
      {
-      PrintFormat("RiskManager: Invalid parameters for fixed pip stop loss. Entry: %.5f, Pips: %d", 
+      PrintFormat("RiskManager: [ERROR] Invalid parameters for fixed pip stop loss - Entry: %.5f, Pips: %d", 
                   entry_price, fixed_pips);
       return 0.0;
      }
@@ -272,23 +285,28 @@ double CRiskManager::CalculateFixedPipStopLoss(double entry_price, int fixed_pip
    
    double stop_distance = fixed_pips * pip_value;
    double stop_loss = 0.0;
+   string order_direction = "";
    
    if(order_type == ORDER_TYPE_BUY)
      {
       stop_loss = entry_price - stop_distance;
+      order_direction = "BUY";
      }
    else if(order_type == ORDER_TYPE_SELL)
      {
       stop_loss = entry_price + stop_distance;
+      order_direction = "SELL";
      }
    else
      {
-      PrintFormat("RiskManager: Invalid order type for fixed pip stop loss: %d", order_type);
+      PrintFormat("RiskManager: [ERROR] Invalid order type for fixed pip stop loss: %d", order_type);
       return 0.0;
      }
    
-   PrintFormat("RiskManager: Fixed Pip Stop Loss calculated - Entry: %.5f, Pips: %d, Stop: %.5f", 
-               entry_price, fixed_pips, stop_loss);
+   datetime calc_time = GetTickCount() - start_time;
+   
+   PrintFormat("RiskManager: [INFO] Fixed Pip Stop Loss calculated (%s) - Entry: %.5f, Pips: %d, Stop: %.5f, PipValue: %.5f, CalcTime: %dms", 
+               order_direction, entry_price, fixed_pips, stop_loss, pip_value, calc_time);
    
    return stop_loss;
   }

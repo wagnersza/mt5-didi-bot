@@ -64,12 +64,21 @@ public:
    
    // Trailing Stop Methods (T011)
    void              CheckTrailingStops(double current_atr);
+   void              CheckTrailingStops();  // Overload that gets ATR internally
    bool              AdjustTrailingStop(ulong ticket, double new_stop_level);
    bool              ShouldTrailStop(double entry_price, double current_price, double current_stop, 
                                     double atr_value, double atr_multiplier, ENUM_ORDER_TYPE order_type);
    double            CalculateTrailingStopLevel(double current_price, double atr_value, double atr_multiplier, 
                                                ENUM_ORDER_TYPE order_type);
    bool              ShouldAdjustTrailingStop(double current_stop, double potential_new_stop, ENUM_ORDER_TYPE order_type);
+   
+   // Error Recovery Methods (T020)
+   bool              PlaceStopLossWithRetry(ulong ticket, double stop_loss_level, int max_retries = 3);
+   bool              ModifyStopLossWithRetry(ulong ticket, double new_stop_level, int max_retries = 3);
+   bool              RecoverFromNetworkError(ulong ticket, double stop_level);
+   bool              HandleBrokerRejection(ulong ticket, double stop_level, int error_code);
+   bool              IsRetryableError(int error_code);
+   void              WaitForConnection(int timeout_seconds = 30);
   };
 //+------------------------------------------------------------------+
 //| Constructor                                                      |
@@ -207,6 +216,12 @@ void CTradeManager::CheckForExit(CDmi &dmi,CStochastic &stoch,CTrix &trix,CBolli
                if(m_trade.PositionClose(ticket))
                  {
                   PrintFormat("CheckForExit: Position #%I64u closed successfully.", ticket);
+                  
+                  // Remove stop loss visualization
+                  if(m_graphic_mgr != NULL)
+                    {
+                     m_graphic_mgr.RemoveStopLoss(IntegerToString(ticket));
+                    }
                  }
                else
                  {
@@ -228,6 +243,12 @@ void CTradeManager::CheckForExit(CDmi &dmi,CStochastic &stoch,CTrix &trix,CBolli
                if(m_trade.PositionClose(ticket))
                  {
                   PrintFormat("CheckForExit: Position #%I64u closed successfully.", ticket);
+                  
+                  // Remove stop loss visualization
+                  if(m_graphic_mgr != NULL)
+                    {
+                     m_graphic_mgr.RemoveStopLoss(IntegerToString(ticket));
+                    }
                  }
                else
                  {
@@ -571,22 +592,31 @@ bool CTradeManager::ExecuteMarketStopOrder(ulong ticket, double volume)
 //+------------------------------------------------------------------+
 void CTradeManager::CheckTrailingStops(double current_atr)
   {
+   datetime start_time = GetTickCount();
+   int active_positions = ArraySize(m_active_stops);
+   int trailing_positions = 0;
+   int adjustments_made = 0;
+   
    if(current_atr <= 0)
      {
-      Print("CheckTrailingStops: Invalid ATR value, skipping trailing stop checks");
+      PrintFormat("TradeManager: [ERROR] Invalid ATR value %.5f, skipping trailing stop checks", current_atr);
       return;
      }
+   
+   PrintFormat("TradeManager: [INFO] Starting trailing stop check - ATR: %.5f, Active stops: %d", 
+               current_atr, active_positions);
    
    for(int i = 0; i < ArraySize(m_active_stops); i++)
      {
       if(!m_active_stops[i].is_trailing)
          continue; // Skip non-trailing stops
       
+      trailing_positions++;
       ulong ticket = m_active_stops[i].ticket;
       
       if(!PositionSelectByTicket(ticket))
         {
-         PrintFormat("CheckTrailingStops: Position %I64u not found, removing from tracking", ticket);
+         PrintFormat("TradeManager: [WARN] Position %I64u not found, removing from tracking", ticket);
          RemoveActiveStopLoss(ticket);
          i--; // Adjust index after removal
          continue;
@@ -595,6 +625,7 @@ void CTradeManager::CheckTrailingStops(double current_atr)
       double current_price = 0;
       double entry_price = m_active_stops[i].entry_price;
       ENUM_ORDER_TYPE order_type = m_active_stops[i].order_type;
+      string direction = (order_type == ORDER_TYPE_BUY) ? "BUY" : "SELL";
       
       // Get current market price
       if(order_type == ORDER_TYPE_BUY)
@@ -612,11 +643,46 @@ void CTradeManager::CheckTrailingStops(double current_atr)
         {
          double new_stop = CalculateTrailingStopLevel(current_price, current_atr, atr_multiplier, order_type);
          
+         PrintFormat("TradeManager: [DEBUG] Trailing candidate %I64u (%s) - Entry: %.5f, Current: %.5f, OldStop: %.5f, NewStop: %.5f",
+                     ticket, direction, entry_price, current_price, current_stop, new_stop);
+         
          if(ShouldAdjustTrailingStop(current_stop, new_stop, order_type))
            {
-            AdjustTrailingStop(ticket, new_stop);
+            if(AdjustTrailingStop(ticket, new_stop))
+              {
+               adjustments_made++;
+               PrintFormat("TradeManager: [SUCCESS] Trailing stop adjusted for %I64u (%s) from %.5f to %.5f",
+                          ticket, direction, current_stop, new_stop);
+              }
            }
         }
+     }
+   
+   datetime processing_time = GetTickCount() - start_time;
+   PrintFormat("TradeManager: [INFO] Trailing stop check completed - Positions: %d, Trailing: %d, Adjusted: %d, ProcessTime: %dms",
+               active_positions, trailing_positions, adjustments_made, processing_time);
+  }
+
+//+------------------------------------------------------------------+
+//| T015: Check trailing stops (overload that gets ATR internally) |
+//+------------------------------------------------------------------+
+void CTradeManager::CheckTrailingStops()
+  {
+   // Get ATR value from global ATR indicator (this needs to be set externally)
+   // For now, we'll skip if no ATR reference is available
+   Print("CheckTrailingStops: Overload method called - requires ATR value from external source");
+   
+   // This is a placeholder - in real implementation, we would need access to the ATR indicator
+   // The DidiBot should call CheckTrailingStops(g_atr.GetCurrentATR()) instead
+   double current_atr = 0.0; // Placeholder
+   
+   if(current_atr > 0)
+     {
+      CheckTrailingStops(current_atr);
+     }
+   else
+     {
+      Print("CheckTrailingStops: Cannot get ATR value, skipping trailing stop checks");
      }
   }
 
@@ -637,6 +703,12 @@ bool CTradeManager::AdjustTrailingStop(ulong ticket, double new_stop_level)
    if(result)
      {
       PrintFormat("AdjustTrailingStop: Trailing stop adjusted to %.5f for ticket %I64u", new_stop_level, ticket);
+      
+      // Update stop loss visualization
+      if(m_graphic_mgr != NULL)
+        {
+         m_graphic_mgr.UpdateStopLoss(IntegerToString(ticket), new_stop_level);
+        }
       
       // Update tracking
       UpdateActiveStopLoss(ticket, new_stop_level, TimeCurrent());
@@ -801,6 +873,12 @@ void CTradeManager::CheckForEntryWithStops(CDmi &dmi,CDidiIndex &didi,CBollinger
             ulong ticket = m_trade.ResultOrder();
             PrintFormat("CheckForEntryWithStops: BUY order sent successfully. Order: %I64u", ticket);
             
+            // Draw stop loss visualization
+            if(m_graphic_mgr != NULL)
+              {
+               m_graphic_mgr.DrawStopLoss(IntegerToString(ticket), stop_loss, true);
+              }
+            
             // Add to stop loss tracking
             if(config.trailing_enabled)
               {
@@ -870,6 +948,12 @@ void CTradeManager::CheckForEntryWithStops(CDmi &dmi,CDidiIndex &didi,CBollinger
             ulong ticket = m_trade.ResultOrder();
             PrintFormat("CheckForEntryWithStops: SELL order sent successfully. Order: %I64u", ticket);
             
+            // Draw stop loss visualization
+            if(m_graphic_mgr != NULL)
+              {
+               m_graphic_mgr.DrawStopLoss(IntegerToString(ticket), stop_loss, false);
+              }
+            
             // Add to stop loss tracking
             if(config.trailing_enabled)
               {
@@ -891,5 +975,216 @@ void CTradeManager::CheckForEntryWithStops(CDmi &dmi,CDidiIndex &didi,CBollinger
    else
      {
       Print("CheckForEntryWithStops: Position already open. Skipping entry check.");
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| T020: Place stop loss with retry logic and error recovery      |
+//+------------------------------------------------------------------+
+bool CTradeManager::PlaceStopLossWithRetry(ulong ticket, double stop_loss_level, int max_retries = 3)
+  {
+   for(int attempt = 1; attempt <= max_retries; attempt++)
+     {
+      PrintFormat("TradeManager: [INFO] Attempting stop loss placement (attempt %d/%d) for ticket %I64u", 
+                  attempt, max_retries, ticket);
+      
+      if(PlaceStopLoss(ticket, stop_loss_level))
+        {
+         PrintFormat("TradeManager: [SUCCESS] Stop loss placed successfully on attempt %d", attempt);
+         return true;
+        }
+      
+      int error_code = GetLastError();
+      
+      if(!IsRetryableError(error_code))
+        {
+         PrintFormat("TradeManager: [ERROR] Non-retryable error %d on attempt %d, aborting", error_code, attempt);
+         return HandleBrokerRejection(ticket, stop_loss_level, error_code);
+        }
+      
+      if(attempt < max_retries)
+        {
+         int delay = attempt * 1000; // Progressive delay: 1s, 2s, 3s
+         PrintFormat("TradeManager: [WARN] Retryable error %d, waiting %dms before retry", error_code, delay);
+         Sleep(delay);
+         
+         // Check connection before retry
+         if(!TerminalInfoInteger(TERMINAL_CONNECTED))
+           {
+            WaitForConnection(30);
+           }
+        }
+     }
+   
+   PrintFormat("TradeManager: [ERROR] Failed to place stop loss after %d attempts", max_retries);
+   return false;
+  }
+
+//+------------------------------------------------------------------+
+//| T020: Modify stop loss with retry logic and error recovery     |
+//+------------------------------------------------------------------+
+bool CTradeManager::ModifyStopLossWithRetry(ulong ticket, double new_stop_level, int max_retries = 3)
+  {
+   for(int attempt = 1; attempt <= max_retries; attempt++)
+     {
+      PrintFormat("TradeManager: [INFO] Attempting stop loss modification (attempt %d/%d) for ticket %I64u", 
+                  attempt, max_retries, ticket);
+      
+      if(ModifyStopLoss(ticket, new_stop_level))
+        {
+         PrintFormat("TradeManager: [SUCCESS] Stop loss modified successfully on attempt %d", attempt);
+         return true;
+        }
+      
+      int error_code = GetLastError();
+      
+      if(!IsRetryableError(error_code))
+        {
+         PrintFormat("TradeManager: [ERROR] Non-retryable error %d on attempt %d, aborting", error_code, attempt);
+         return HandleBrokerRejection(ticket, new_stop_level, error_code);
+        }
+      
+      if(attempt < max_retries)
+        {
+         int delay = attempt * 1000; // Progressive delay: 1s, 2s, 3s
+         PrintFormat("TradeManager: [WARN] Retryable error %d, waiting %dms before retry", error_code, delay);
+         Sleep(delay);
+         
+         // Check connection before retry
+         if(!TerminalInfoInteger(TERMINAL_CONNECTED))
+           {
+            WaitForConnection(30);
+           }
+        }
+     }
+   
+   PrintFormat("TradeManager: [ERROR] Failed to modify stop loss after %d attempts", max_retries);
+   return false;
+  }
+
+//+------------------------------------------------------------------+
+//| T020: Recover from network connection errors                    |
+//+------------------------------------------------------------------+
+bool CTradeManager::RecoverFromNetworkError(ulong ticket, double stop_level)
+  {
+   PrintFormat("TradeManager: [INFO] Attempting network error recovery for ticket %I64u", ticket);
+   
+   WaitForConnection(60); // Wait up to 60 seconds for reconnection
+   
+   if(TerminalInfoInteger(TERMINAL_CONNECTED))
+     {
+      PrintFormat("TradeManager: [SUCCESS] Connection recovered, retrying stop loss operation");
+      return PlaceStopLossWithRetry(ticket, stop_level, 2); // Reduced retries after recovery
+     }
+   
+   PrintFormat("TradeManager: [ERROR] Network recovery failed for ticket %I64u", ticket);
+   return false;
+  }
+
+//+------------------------------------------------------------------+
+//| T020: Handle broker rejection with fallback strategies         |
+//+------------------------------------------------------------------+
+bool CTradeManager::HandleBrokerRejection(ulong ticket, double stop_level, int error_code)
+  {
+   PrintFormat("TradeManager: [WARN] Handling broker rejection - Error: %d, Ticket: %I64u", error_code, ticket);
+   
+   switch(error_code)
+     {
+      case TRADE_RETCODE_INVALID_STOPS:
+        {
+         // Adjust stop level to broker requirements
+         double min_distance = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL) * _Point;
+         if(min_distance > 0)
+           {
+            if(!PositionSelectByTicket(ticket))
+              return false;
+            
+            double entry_price = PositionGetDouble(POSITION_PRICE_OPEN);
+            ENUM_ORDER_TYPE order_type = (ENUM_ORDER_TYPE)PositionGetInteger(POSITION_TYPE);
+            
+            double adjusted_stop = 0;
+            if(order_type == ORDER_TYPE_BUY)
+              adjusted_stop = entry_price - min_distance - (10 * _Point); // Extra buffer
+            else
+              adjusted_stop = entry_price + min_distance + (10 * _Point);
+            
+            PrintFormat("TradeManager: [INFO] Adjusting stop from %.5f to %.5f due to broker requirements", 
+                       stop_level, adjusted_stop);
+            return PlaceStopLoss(ticket, adjusted_stop);
+           }
+         break;
+        }
+      
+      case TRADE_RETCODE_NO_MONEY:
+        {
+         PrintFormat("TradeManager: [ERROR] Insufficient funds - Cannot place stop loss for ticket %I64u", ticket);
+         return false;
+        }
+      
+      case TRADE_RETCODE_MARKET_CLOSED:
+        {
+         PrintFormat("TradeManager: [WARN] Market closed - Will retry when market opens");
+         // Could implement a queue for pending operations
+         return false;
+        }
+      
+      default:
+        {
+         PrintFormat("TradeManager: [ERROR] Unhandled broker rejection: %d", error_code);
+         return false;
+        }
+     }
+   
+   return false;
+  }
+
+//+------------------------------------------------------------------+
+//| T020: Check if error code is retryable                         |
+//+------------------------------------------------------------------+
+bool CTradeManager::IsRetryableError(int error_code)
+  {
+   switch(error_code)
+     {
+      case TRADE_RETCODE_CONNECTION:
+      case TRADE_RETCODE_TIMEOUT:
+      case TRADE_RETCODE_REJECT:
+      case TRADE_RETCODE_REQUOTE:
+      case TRADE_RETCODE_SERVER_DISABLES_AT:
+        return true;
+      
+      case TRADE_RETCODE_INVALID_STOPS:
+      case TRADE_RETCODE_NO_MONEY:
+      case TRADE_RETCODE_MARKET_CLOSED:
+      case TRADE_RETCODE_INVALID_ORDER:
+        return false;
+      
+      default:
+        return true; // Default to retryable for unknown errors
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| T020: Wait for broker connection with timeout                  |
+//+------------------------------------------------------------------+
+void CTradeManager::WaitForConnection(int timeout_seconds = 30)
+  {
+   PrintFormat("TradeManager: [INFO] Waiting for broker connection (timeout: %d seconds)", timeout_seconds);
+   
+   datetime start_time = TimeCurrent();
+   
+   while(!TerminalInfoInteger(TERMINAL_CONNECTED) && 
+         (TimeCurrent() - start_time) < timeout_seconds)
+     {
+      Sleep(1000); // Check every second
+      PrintFormat("TradeManager: [DEBUG] Still waiting for connection...");
+     }
+   
+   if(TerminalInfoInteger(TERMINAL_CONNECTED))
+     {
+      PrintFormat("TradeManager: [SUCCESS] Broker connection restored");
+     }
+   else
+     {
+      PrintFormat("TradeManager: [ERROR] Connection timeout after %d seconds", timeout_seconds);
      }
   }

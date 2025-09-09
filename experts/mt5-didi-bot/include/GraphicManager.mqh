@@ -31,6 +31,15 @@ public:
    void              DrawExitSignal(datetime time, double price, bool is_buy, string reason);
    void              UpdateSignalPanel(CDmi &dmi, CDidiIndex &didi, CBollingerBands &bb, 
                                      CStochastic &stoch, CTrix &trix, CIfr &ifr);
+   void              UpdateSignalPanelWithStops(CDmi &dmi, CDidiIndex &didi, CBollingerBands &bb, 
+                                               CStochastic &stoch, CTrix &trix, CIfr &ifr,
+                                               CAtr &atr, CRiskManager &risk_mgr, CTradeManager &trade_mgr);
+   
+   // Stop loss visualization methods
+   void              DrawStopLoss(string ticket, double stop_price, bool is_buy);
+   void              UpdateStopLoss(string ticket, double new_stop_price);
+   void              RemoveStopLoss(string ticket);
+   void              DrawTrailingStop(string ticket, double stop_price, bool is_buy);
    
    // Indicator visualization methods
    void              DrawDidiLevels(CDidiIndex &didi, datetime time);
@@ -181,6 +190,56 @@ void CGraphicManager::UpdateSignalPanel(CDmi &dmi, CDidiIndex &didi, CBollingerB
       stoch.Main(1), stoch.Signal(1),
       trix.Main(1),
       ifr.Main(1)
+   );
+   
+   UpdateInfoPanel(panel_text);
+}
+
+//+------------------------------------------------------------------+
+//| Update signal panel with stop loss information                  |
+//+------------------------------------------------------------------+
+void CGraphicManager::UpdateSignalPanelWithStops(CDmi &dmi, CDidiIndex &didi, CBollingerBands &bb, 
+                                                CStochastic &stoch, CTrix &trix, CIfr &ifr,
+                                                CAtr &atr, CRiskManager &risk_mgr, CTradeManager &trade_mgr)
+{
+   datetime current_time = TimeCurrent();
+   
+   // Update each indicator visualization
+   DrawDidiLevels(didi, current_time);
+   DrawBollingerBands(bb, current_time);
+   DrawDMISignals(dmi, current_time);
+   DrawStochasticLevels(stoch, current_time);
+   DrawTrixSignal(trix, current_time);
+   DrawIFRLevels(ifr, current_time);
+   
+   // Get stop loss configuration and current ATR
+   StopLossConfig config = risk_mgr.GetStopLossConfig();
+   double current_atr = atr.GetCurrentATR();
+   int active_stops = trade_mgr.GetActiveStopLossCount();
+   
+   // Build panel text with stop loss information
+   string panel_text = StringFormat(
+      "ADX: %.2f | +DI: %.2f | -DI: %.2f\n" +
+      "Didi: %s\n" +
+      "BB: U:%.5f M:%.5f L:%.5f\n" +
+      "Stoch: %.1f/%.1f\n" +
+      "TRIX: %.6f\n" +
+      "IFR: %.2f\n" +
+      "═══ STOP LOSS INFO ═══\n" +
+      "Type: %s | ATR: %.5f\n" +
+      "Mult: %.1f | Trailing: %s\n" +
+      "Active Stops: %d",
+      dmi.Adx(1), dmi.PlusDi(1), dmi.MinusDi(1),
+      (didi.IsAgulhada(1) ? "AGULHADA" : "NO SIGNAL"),
+      bb.UpperBand(1), bb.MiddleBand(1), bb.LowerBand(1),
+      stoch.Main(1), stoch.Signal(1),
+      trix.Main(1),
+      ifr.Main(1),
+      (config.type == ATR_BASED) ? "ATR" : "FIXED",
+      current_atr,
+      config.atr_multiplier,
+      config.trailing_enabled ? "YES" : "NO",
+      active_stops
    );
    
    UpdateInfoPanel(panel_text);
@@ -479,4 +538,86 @@ void CGraphicManager::SetObjectProperties(string name, color obj_color, int widt
 {
    ObjectSetInteger(0, name, OBJPROP_COLOR, obj_color);
    ObjectSetInteger(0, name, OBJPROP_WIDTH, width);
+}
+
+//+------------------------------------------------------------------+
+//| Draw stop loss level for a specific trade                       |
+//+------------------------------------------------------------------+
+void CGraphicManager::DrawStopLoss(string ticket, double stop_price, bool is_buy)
+{
+   string name = "StopLoss_" + ticket;
+   color stop_color = is_buy ? clrRed : clrBlue;
+   
+   DrawHorizontalLine(name, stop_price, stop_color, STYLE_DOT, 2);
+   
+   // Add text label for stop loss
+   string label_name = "StopLabel_" + ticket;
+   datetime current_time = TimeCurrent();
+   string label_text = StringFormat("SL: %.5f", stop_price);
+   
+   DrawText(label_name, current_time, stop_price, label_text, stop_color, 8);
+   
+   Print("GraphicManager: Stop loss drawn for ticket ", ticket, " at price ", stop_price);
+}
+
+//+------------------------------------------------------------------+
+//| Update stop loss level for a specific trade                     |
+//+------------------------------------------------------------------+
+void CGraphicManager::UpdateStopLoss(string ticket, double new_stop_price)
+{
+   string name = "StopLoss_" + ticket;
+   string full_name = GenerateObjectName(name);
+   
+   if(ObjectFind(0, full_name) >= 0)
+   {
+      ObjectSetDouble(0, full_name, OBJPROP_PRICE, new_stop_price);
+      
+      // Update text label
+      string label_name = "StopLabel_" + ticket;
+      string full_label_name = GenerateObjectName(label_name);
+      
+      if(ObjectFind(0, full_label_name) >= 0)
+      {
+         ObjectSetDouble(0, full_label_name, OBJPROP_PRICE, new_stop_price);
+         string label_text = StringFormat("SL: %.5f", new_stop_price);
+         ObjectSetString(0, full_label_name, OBJPROP_TEXT, label_text);
+      }
+      
+      ChartRedraw(0);
+      Print("GraphicManager: Stop loss updated for ticket ", ticket, " to price ", new_stop_price);
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Remove stop loss visualization for a specific trade             |
+//+------------------------------------------------------------------+
+void CGraphicManager::RemoveStopLoss(string ticket)
+{
+   string line_name = "StopLoss_" + ticket;
+   string label_name = "StopLabel_" + ticket;
+   
+   DeleteObject(line_name);
+   DeleteObject(label_name);
+   
+   Print("GraphicManager: Stop loss removed for ticket ", ticket);
+}
+
+//+------------------------------------------------------------------+
+//| Draw trailing stop indication                                   |
+//+------------------------------------------------------------------+
+void CGraphicManager::DrawTrailingStop(string ticket, double stop_price, bool is_buy)
+{
+   string name = "TrailStop_" + ticket;
+   color trail_color = is_buy ? clrOrange : clrCyan;
+   
+   DrawHorizontalLine(name, stop_price, trail_color, STYLE_DASHDOT, 2);
+   
+   // Add trailing stop text label
+   string label_name = "TrailLabel_" + ticket;
+   datetime current_time = TimeCurrent();
+   string label_text = StringFormat("TSL: %.5f", stop_price);
+   
+   DrawText(label_name, current_time, stop_price, label_text, trail_color, 8);
+   
+   Print("GraphicManager: Trailing stop drawn for ticket ", ticket, " at price ", stop_price);
 }

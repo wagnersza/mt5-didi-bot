@@ -540,6 +540,12 @@ class CAtr
 protected:
    int               m_handle;           // Indicator handle
    double            m_atr_buffer[];     // Buffer for ATR values
+   
+   // Performance optimization: caching
+   double            m_cached_atr;       // Cached ATR value
+   datetime          m_cache_time;       // Time of last cache update
+   int               m_cache_bar;        // Bar number of last cache
+   bool              m_cache_valid;      // Cache validity flag
 
 public:
                      CAtr();
@@ -549,12 +555,14 @@ public:
    bool              GetValues(double &atr_array[], int start_pos, int count);
    double            GetCurrentATR();
    bool              IsValidHandle() const;
+   void              InvalidateCache();  // Force cache refresh
 };
 
 //+------------------------------------------------------------------+
 //| Constructor                                                      |
 //+------------------------------------------------------------------+
-CAtr::CAtr() : m_handle(INVALID_HANDLE)
+CAtr::CAtr() : m_handle(INVALID_HANDLE), m_cached_atr(0.0), m_cache_time(0), 
+               m_cache_bar(-1), m_cache_valid(false)
 {
 }
 
@@ -637,11 +645,44 @@ bool CAtr::GetValues(double &atr_array[], int start_pos, int count)
 }
 
 //+------------------------------------------------------------------+
-//| Get current ATR value (shift 1 for completed bar)              |
+//| Get current ATR value with performance caching                  |
 //+------------------------------------------------------------------+
 double CAtr::GetCurrentATR()
 {
-   return Main(1); // Use shift 1 for last completed bar
+   datetime current_time = TimeCurrent();
+   int current_bar = Bars(_Symbol, _Period) - 1; // Current completed bar
+   
+   // Check if cache is valid (same bar and recent time)
+   if(m_cache_valid && m_cache_bar == current_bar && 
+      (current_time - m_cache_time) < 30) // Cache valid for 30 seconds
+     {
+      return m_cached_atr;
+     }
+   
+   // Cache miss - fetch new value
+   double atr_value = Main(1); // Use shift 1 for last completed bar
+   
+   if(atr_value > 0)
+     {
+      // Update cache
+      m_cached_atr = atr_value;
+      m_cache_time = current_time;
+      m_cache_bar = current_bar;
+      m_cache_valid = true;
+     }
+   
+   return atr_value;
+}
+
+//+------------------------------------------------------------------+
+//| Invalidate cache to force refresh                               |
+//+------------------------------------------------------------------+
+void CAtr::InvalidateCache()
+{
+   m_cache_valid = false;
+   m_cached_atr = 0.0;
+   m_cache_time = 0;
+   m_cache_bar = -1;
 }
 
 //+------------------------------------------------------------------+
